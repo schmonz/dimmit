@@ -3,16 +3,16 @@
 The brightness keys on your keyboard adjust your display promptly and smoothly -- for _internal_ displays.
 Dimmit lets them do the same for external displays.
 
-Tested on Linux. Other platforms welcome. (There's untested code for NetBSD and macOS.)
+Tested on Linux amd64 and macOS arm64. Other platforms welcome. (There's untested code for NetBSD and macOS amd64.)
 
 ## Build
 
 Build-time dependencies:
 - CMake
-- `libddcutil-dev`
+- `libddcutil-dev` (on Linux)
 
 Run-time dependencies:
-- `libddcutil4`
+- `libddcutil4` (on Linux)
 
 ## Use
 
@@ -22,6 +22,13 @@ sudo usermod -a -G video $(whoami)
 newgrp video
 cd build
 sudo ./dimmitd >/dev/null &
+./dimmit-down
+```
+
+On macOS:
+```sh
+cd build
+./dimmitd >/dev/null &
 ./dimmit-down
 ```
 
