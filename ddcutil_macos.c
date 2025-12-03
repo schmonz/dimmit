@@ -1,4 +1,5 @@
 #include "ddcutil_macos.h"
+#include "ddc_constants.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -7,9 +8,6 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreGraphics/CoreGraphics.h>
 
-#define VCP_BRIGHTNESS 0x10
-#define DDC_ADDR 0x6E
-#define DDC_REPLY_ADDR 0x6F
 #define ARM64_DDC_7BIT_ADDRESS 0x37
 #define ARM64_DDC_DATA_ADDRESS 0x51
 

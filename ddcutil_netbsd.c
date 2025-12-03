@@ -1,4 +1,5 @@
 #include "ddcutil_netbsd.h"
+#include "ddc_constants.h"
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -6,8 +7,7 @@
 #include <sys/ioctl.h>
 #include <dev/i2c/i2c_io.h>
 
-#define VCP_BRIGHTNESS 0x10
-#define DDC_ADDR 0x37  /* 0x6E >> 1 for 7-bit addressing */
+#define DDC_ADDR_7BIT 0x37  /* 0x6E >> 1 for 7-bit addressing */
 
 /* Internal display reference structure */
 struct DDCN_Display_Ref_s {
@@ -58,7 +58,7 @@ DDCN_Status ddcn_get_display_info_list2(int flags, DDCN_Display_Info_List **list
         i2c_ioctl_exec_t iie;
         memset(&iie, 0, sizeof(iie));
         iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-        iie.iie_addr = DDC_ADDR;
+        iie.iie_addr = DDC_ADDR_7BIT;
         iie.iie_cmd = test_cmd;
         iie.iie_cmdlen = sizeof(test_cmd);
         
@@ -159,7 +159,7 @@ DDCN_Status ddcn_get_non_table_vcp_value(DDCN_Display_Handle h, uint8_t feature_
     i2c_ioctl_exec_t iie;
     memset(&iie, 0, sizeof(iie));
     iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-    iie.iie_addr = DDC_ADDR;
+    iie.iie_addr = DDC_ADDR_7BIT;
     iie.iie_cmd = cmd;
     iie.iie_cmdlen = sizeof(cmd);
     
@@ -174,7 +174,7 @@ DDCN_Status ddcn_get_non_table_vcp_value(DDCN_Display_Handle h, uint8_t feature_
     uint8_t reply[12];
     memset(&iie, 0, sizeof(iie));
     iie.iie_op = I2C_OP_READ_WITH_STOP;
-    iie.iie_addr = DDC_ADDR;
+    iie.iie_addr = DDC_ADDR_7BIT;
     iie.iie_buf = reply;
     iie.iie_buflen = sizeof(reply);
     
@@ -210,7 +210,7 @@ DDCN_Status ddcn_set_non_table_vcp_value(DDCN_Display_Handle h, uint8_t feature_
     i2c_ioctl_exec_t iie;
     memset(&iie, 0, sizeof(iie));
     iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-    iie.iie_addr = DDC_ADDR;
+    iie.iie_addr = DDC_ADDR_7BIT;
     iie.iie_cmd = cmd;
     iie.iie_cmdlen = sizeof(cmd);
     

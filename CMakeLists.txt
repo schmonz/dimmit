@@ -39,7 +39,6 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(FATAL_ERROR "ddcutil not found. Please install libddcutil development files.")
     endif ()
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    # Build ddcutil_macos library
     add_library(ddcutil_macos STATIC
         ddcutil_macos.c
         ddcutil_macos.h
@@ -53,7 +52,6 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     )
     list(APPEND PLATFORM_LIBS ddcutil_macos)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
-    # Build ddcutil_netbsd library
     add_library(ddcutil_netbsd STATIC
         ddcutil_netbsd.c
         ddcutil_netbsd.h
