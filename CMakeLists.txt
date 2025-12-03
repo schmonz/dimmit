@@ -39,7 +39,19 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(FATAL_ERROR "ddcutil not found. Please install libddcutil development files.")
     endif ()
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    list(APPEND PLATFORM_LIBS "-framework IOKit" "-framework ApplicationServices" "-framework CoreGraphics" "-framework CoreDisplay")
+    # Build ddcutil_macos library
+    add_library(ddcutil_macos STATIC
+        ddcutil_macos.c
+        ddcutil_macos.h
+    )
+    target_link_libraries(ddcutil_macos
+        PUBLIC
+        "-framework IOKit"
+        "-framework ApplicationServices"
+        "-framework CoreGraphics"
+        "-framework CoreDisplay"
+    )
+    list(APPEND PLATFORM_LIBS ddcutil_macos)
 endif ()
 
 add_executable(dimmitd
