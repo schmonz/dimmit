@@ -39,7 +39,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         message(FATAL_ERROR "ddcutil not found. Please install libddcutil development files.")
     endif ()
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    list(APPEND PLATFORM_LIBS "-framework IOKit" "-framework ApplicationServices" "-framework CoreGraphics")
+    list(APPEND PLATFORM_LIBS "-framework IOKit" "-framework ApplicationServices" "-framework CoreGraphics" "-framework CoreDisplay")
 endif ()
 
 add_executable(dimmitd

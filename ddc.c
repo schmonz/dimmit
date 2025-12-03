@@ -116,14 +116,38 @@ void ddc_close_display(ddc_handle_t *handle) {
 #include <IOKit/IOKitLib.h>
 #include <IOKit/i2c/IOI2CInterface.h>
 #include <ApplicationServices/ApplicationServices.h>
+#include <CoreGraphics/CoreGraphics.h>
 
 #define VCP_BRIGHTNESS 0x10
 #define DDC_ADDR 0x6E
 #define DDC_REPLY_ADDR 0x6F
+#define ARM64_DDC_7BIT_ADDRESS 0x37
+#define ARM64_DDC_DATA_ADDRESS 0x51
+
+/* Private IOAVService APIs for Apple Silicon */
+typedef struct __IOAVService *IOAVServiceRef;
+extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef allocator, io_service_t service);
+extern int IOAVServiceReadI2C(IOAVServiceRef service, uint32_t chipAddress, uint32_t offset, void *buffer, uint32_t length);
+extern int IOAVServiceWriteI2C(IOAVServiceRef service, uint32_t chipAddress, uint32_t dataAddress, void *buffer, uint32_t length);
+
+typedef enum {
+    DDC_METHOD_INTEL,    /* Intel Mac - IOFramebuffer with IOI2C */
+    DDC_METHOD_ARM64     /* Apple Silicon - IOAVService */
+} ddc_method_t;
 
 struct ddc_handle {
-    io_service_t framebuffer;
-    IOI2CConnectRef i2c;
+    ddc_method_t method;
+    union {
+        struct {
+            io_service_t framebuffer;
+            IOI2CConnectRef i2c;
+        } intel;
+        struct {
+            IOAVServiceRef avservice;
+        } arm64;
+    } data;
+    int max_brightness;
+    int current_brightness;
 };
 
 int ddc_is_authorized(int client_fd) {
@@ -132,31 +156,27 @@ int ddc_is_authorized(int client_fd) {
     return 1;
 }
 
-static int ddc_write(ddc_handle_t *h, const uint8_t *data, size_t len) {
+static int ddc_write_intel(ddc_handle_t *h, const uint8_t *data, size_t len) {
     IOI2CRequest request;
     memset(&request, 0, sizeof(request));
-
     request.commFlags = 0;
     request.sendAddress = DDC_ADDR;
     request.sendTransactionType = kIOI2CSimpleTransactionType;
     request.sendBuffer = (vm_address_t)data;
     request.sendBytes = len;
-
-    IOReturn ret = IOI2CSendRequest(h->i2c, kNilOptions, &request);
+    IOReturn ret = IOI2CSendRequest(h->data.intel.i2c, kNilOptions, &request);
     return (ret == kIOReturnSuccess) ? 0 : -1;
 }
 
-static int ddc_read(ddc_handle_t *h, const uint8_t *data, size_t len) {
+static int ddc_read_intel(ddc_handle_t *h, const uint8_t *data, size_t len) {
     IOI2CRequest request;
     memset(&request, 0, sizeof(request));
-
     request.commFlags = 0;
     request.replyAddress = DDC_REPLY_ADDR;
     request.replyTransactionType = kIOI2CSimpleTransactionType;
     request.replyBuffer = (vm_address_t)data;
     request.replyBytes = len;
-
-    IOReturn ret = IOI2CSendRequest(h->i2c, kNilOptions, &request);
+    IOReturn ret = IOI2CSendRequest(h->data.intel.i2c, kNilOptions, &request);
     return (ret == kIOReturnSuccess) ? 0 : -1;
 }
 
@@ -172,14 +192,15 @@ ddc_handle_t* ddc_open_display(void) {
     for (uint32_t i = 0; i < count; i++) {
         if (CGDisplayIsBuiltin(displays[i])) continue;
 
-        /* Get IOService for this specific display using modern API */
+        /* Try Intel Mac method (IOFramebuffer) */
         CFMutableDictionaryRef matching = IOServiceMatching("IOFramebuffer");
         if (!matching) continue;
 
-        /* Add the display's vendor/product to match criteria */
-        CFNumberRef vendorID = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &(uint32_t){CGDisplayVendorNumber(displays[i])});
-        CFNumberRef productID = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &(uint32_t){CGDisplayModelNumber(displays[i])});
-        
+        uint32_t vendor = CGDisplayVendorNumber(displays[i]);
+        uint32_t product = CGDisplayModelNumber(displays[i]);
+        CFNumberRef vendorID = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &vendor);
+        CFNumberRef productID = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &product);
+
         if (vendorID && productID) {
             CFDictionarySetValue(matching, CFSTR("IODisplayVendorID"), vendorID);
             CFDictionarySetValue(matching, CFSTR("IODisplayProductID"), productID);
@@ -194,7 +215,6 @@ ddc_handle_t* ddc_open_display(void) {
         io_service_t framebuffer = 0;
         io_service_t service;
         while ((service = IOIteratorNext(iterator)) != 0) {
-            /* Verify this framebuffer has I2C interface */
             IOItemCount busCount;
             if (IOFBGetI2CInterfaceCount(service, &busCount) == kIOReturnSuccess && busCount > 0) {
                 framebuffer = service;
@@ -204,70 +224,200 @@ ddc_handle_t* ddc_open_display(void) {
         }
         IOObjectRelease(iterator);
 
-        if (!framebuffer) continue;
-
-        io_service_t i2cService;
-        if (IOFBCopyI2CInterfaceForBus(framebuffer, 0, &i2cService) != kIOReturnSuccess) {
+        if (framebuffer) {
+            io_service_t i2cService;
+            if (IOFBCopyI2CInterfaceForBus(framebuffer, 0, &i2cService) == kIOReturnSuccess) {
+                IOI2CConnectRef i2c;
+                if (IOI2CInterfaceOpen(i2cService, kNilOptions, &i2c) == kIOReturnSuccess) {
+                    IOObjectRelease(i2cService);
+                    ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
+                    if (handle) {
+                        handle->method = DDC_METHOD_INTEL;
+                        handle->data.intel.framebuffer = framebuffer;
+                        handle->data.intel.i2c = i2c;
+                        handle->max_brightness = 100;
+                        handle->current_brightness = 50;
+                        return handle;
+                    }
+                    IOI2CInterfaceClose(i2c, kNilOptions);
+                }
+                IOObjectRelease(i2cService);
+            }
             IOObjectRelease(framebuffer);
-            continue;
         }
+    }
 
-        IOI2CConnectRef i2c;
-        if (IOI2CInterfaceOpen(i2cService, kNilOptions, &i2c) != kIOReturnSuccess) {
-            IOObjectRelease(i2cService);
-            IOObjectRelease(framebuffer);
-            continue;
+    /* Fall back to Apple Silicon method (IOAVService via IORegistry) */
+    io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
+    if (root) {
+        io_iterator_t iterator;
+        if (IORegistryEntryCreateIterator(root, "IOService", kIORegistryIterateRecursively, &iterator) == KERN_SUCCESS) {
+            io_service_t service;
+            IOAVServiceRef avservice = NULL;
+
+            while ((service = IOIteratorNext(iterator))) {
+                char name[128];
+                if (IORegistryEntryGetName(service, name) == KERN_SUCCESS) {
+                    if (strcmp(name, "DCPAVServiceProxy") == 0) {
+                        CFTypeRef location_ref = IORegistryEntryCreateCFProperty(service, CFSTR("Location"),
+                            kCFAllocatorDefault, kIORegistryIterateRecursively);
+                        if (location_ref) {
+                            if (CFGetTypeID(location_ref) == CFStringGetTypeID()) {
+                                CFStringRef location = (CFStringRef)location_ref;
+                                if (CFStringCompare(location, CFSTR("External"), 0) == kCFCompareEqualTo) {
+                                    avservice = IOAVServiceCreateWithService(kCFAllocatorDefault, service);
+                                    CFRelease(location_ref);
+                                    IOObjectRelease(service);
+                                    break;
+                                }
+                            }
+                            CFRelease(location_ref);
+                        }
+                    }
+                }
+                IOObjectRelease(service);
+            }
+
+            IOObjectRelease(iterator);
+
+            if (avservice) {
+                IOObjectRelease(root);
+                ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
+                if (!handle) {
+                    CFRelease(avservice);
+                    return NULL;
+                }
+                handle->method = DDC_METHOD_ARM64;
+                handle->data.arm64.avservice = avservice;
+                handle->max_brightness = 100;
+                handle->current_brightness = 50;
+                return handle;
+            }
         }
-
-        IOObjectRelease(i2cService);
-
-        ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
-        if (!handle) {
-            IOI2CInterfaceClose(i2c, kNilOptions);
-            IOObjectRelease(framebuffer);
-            continue;
-        }
-
-        handle->framebuffer = framebuffer;
-        handle->i2c = i2c;
-        return handle;
+        IOObjectRelease(root);
     }
 
     return NULL;
 }
 
+static uint8_t ddc_checksum(uint8_t chk, uint8_t *data, int start, int end) {
+    for (int i = start; i <= end; i++) {
+        chk ^= data[i];
+    }
+    return chk;
+}
+
 int ddc_get_brightness(ddc_handle_t *h, int *current, int *max) {
-    uint8_t cmd[] = {0x51, 0x82, 0x01, VCP_BRIGHTNESS, 0x00, 0x00};
-    cmd[5] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3]; /* Checksum */
+    if (h->method == DDC_METHOD_INTEL) {
+        /* Intel Mac - read via DDC/CI */
+        uint8_t cmd[] = {0x51, 0x82, 0x01, VCP_BRIGHTNESS, 0x00, 0x00};
+        cmd[5] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3];
 
-    if (ddc_write(h, cmd, sizeof(cmd)) != 0)
-        return -1;
+        if (ddc_write_intel(h, cmd, sizeof(cmd)) != 0)
+            return -1;
 
-    usleep(40000); /* DDC needs time to respond */
+        usleep(40000);
 
-    uint8_t reply[12];
-    if (ddc_read(h, reply, sizeof(reply)) != 0)
-        return -1;
+        uint8_t reply[12];
+        if (ddc_read_intel(h, reply, sizeof(reply)) != 0)
+            return -1;
 
-    if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != VCP_BRIGHTNESS)
-        return -1;
+        if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != VCP_BRIGHTNESS)
+            return -1;
 
-    *max = (reply[6] << 8) | reply[7];
-    *current = (reply[8] << 8) | reply[9];
-    return 0;
+        *max = (reply[6] << 8) | reply[7];
+        *current = (reply[8] << 8) | reply[9];
+        h->max_brightness = *max;
+        h->current_brightness = *current;
+        return 0;
+    } else {
+        /* Apple Silicon - read via IOAVService */
+        uint8_t cmd[1] = {VCP_BRIGHTNESS};
+        
+        uint8_t packet[8];
+        packet[0] = 0x80 | (sizeof(cmd) + 1);
+        packet[1] = sizeof(cmd);
+        packet[2] = cmd[0];
+        packet[3] = ddc_checksum(ARM64_DDC_7BIT_ADDRESS << 1 ^ ARM64_DDC_DATA_ADDRESS, 
+                                 packet, 0, 2);
+        
+        int ret = IOAVServiceWriteI2C(h->data.arm64.avservice, ARM64_DDC_7BIT_ADDRESS, 
+                                      ARM64_DDC_DATA_ADDRESS, packet, sizeof(packet));
+        if (ret != 0)
+            return -1;
+
+        usleep(40000);
+
+        uint8_t reply[12];
+        ret = IOAVServiceReadI2C(h->data.arm64.avservice, ARM64_DDC_7BIT_ADDRESS, 
+                                 ARM64_DDC_DATA_ADDRESS, reply, sizeof(reply));
+        if (ret != 0)
+            return -1;
+
+        if (reply[0] != DDC_ADDR || reply[2] != 0x02 || reply[4] != VCP_BRIGHTNESS)
+            return -1;
+
+        *max = (reply[6] << 8) | reply[7];
+        *current = (reply[8] << 8) | reply[9];
+        h->max_brightness = *max;
+        h->current_brightness = *current;
+        return 0;
+    }
 }
 
 int ddc_set_brightness(ddc_handle_t *h, int value) {
-    uint8_t cmd[] = {0x51, 0x84, 0x03, VCP_BRIGHTNESS,
-                     (value >> 8) & 0xFF, value & 0xFF, 0x00};
-    cmd[6] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3] ^ cmd[4] ^ cmd[5];
+    if (value < 0 || value > 100)
+        return -1;
 
-    return ddc_write(h, cmd, sizeof(cmd));
+    if (h->method == DDC_METHOD_INTEL) {
+        /* Intel Mac - write via DDC/CI */
+        uint8_t cmd[] = {0x51, 0x84, 0x03, VCP_BRIGHTNESS,
+                         (value >> 8) & 0xFF, value & 0xFF, 0x00};
+        cmd[6] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3] ^ cmd[4] ^ cmd[5];
+
+        int ret = ddc_write_intel(h, cmd, sizeof(cmd));
+        if (ret == 0) {
+            h->current_brightness = value;
+        }
+        return ret;
+    } else {
+        /* Apple Silicon - write via IOAVService */
+        uint8_t send[3] = {VCP_BRIGHTNESS, (uint8_t)(value >> 8), (uint8_t)(value & 0xFF)};
+        
+        uint8_t packet[8];
+        packet[0] = 0x80 | (sizeof(send) + 1);
+        packet[1] = sizeof(send);
+        packet[2] = send[0];
+        packet[3] = send[1];
+        packet[4] = send[2];
+        packet[5] = ddc_checksum(ARM64_DDC_7BIT_ADDRESS << 1 ^ ARM64_DDC_DATA_ADDRESS, 
+                                 packet, 0, 4);
+        
+        int ret = IOAVServiceWriteI2C(h->data.arm64.avservice, ARM64_DDC_7BIT_ADDRESS, 
+                                      ARM64_DDC_DATA_ADDRESS, packet, sizeof(packet));
+        
+        if (ret == 0) {
+            h->current_brightness = value;
+            return 0;
+        }
+        return -1;
+    }
 }
 
 void ddc_close_display(ddc_handle_t *h) {
     if (h) {
-        if (h->i2c) IOI2CInterfaceClose(h->i2c, kNilOptions);
+        if (h->method == DDC_METHOD_INTEL) {
+            if (h->data.intel.i2c) {
+                IOI2CInterfaceClose(h->data.intel.i2c, kNilOptions);
+            }
+            if (h->data.intel.framebuffer) {
+                IOObjectRelease(h->data.intel.framebuffer);
+            }
+        } else {
+            if (h->data.arm64.avservice) {
+                CFRelease(h->data.arm64.avservice);
+            }
+        }
         free(h);
     }
 }
