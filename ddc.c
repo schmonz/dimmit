@@ -190,17 +190,12 @@ void ddc_close_display(ddc_handle_t *handle) {
 #include <pwd.h>
 #include <grp.h>
 #include <stdlib.h>
-#include <string.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
-#include <dev/i2c/i2c_io.h>
+#include "ddcutil_netbsd.h"
 
 #define VCP_BRIGHTNESS 0x10
-#define DDC_ADDR 0x37  /* 0x6E >> 1 for 7-bit addressing */
 
 struct ddc_handle {
-    int fd;
+    DDCN_Display_Handle dh;
 };
 
 int ddc_is_authorized(int client_fd) {
@@ -243,94 +238,52 @@ int ddc_is_authorized(int client_fd) {
 }
 
 ddc_handle_t* ddc_open_display(void) {
-    /* Try common i2c device paths */
-    const char *paths[] = {
-        "/dev/iic0", "/dev/iic1", "/dev/iic2", "/dev/iic3",
-        NULL
-    };
-
-    for (int i = 0; paths[i]; i++) {
-        int fd = open(paths[i], O_RDWR);
-        if (fd < 0) continue;
-
-        /* Test if DDC is available by attempting to write a command */
-        uint8_t test_cmd[] = {0x51, 0x82, 0x01, VCP_BRIGHTNESS, 0x00, 0x00};
-        test_cmd[5] = 0x6E ^ test_cmd[0] ^ test_cmd[1] ^ test_cmd[2] ^ test_cmd[3];
-
-        i2c_ioctl_exec_t iie;
-        memset(&iie, 0, sizeof(iie));
-        iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-        iie.iie_addr = DDC_ADDR;
-        iie.iie_cmd = test_cmd;
-        iie.iie_cmdlen = sizeof(test_cmd);
-
-        if (ioctl(fd, I2C_IOCTL_EXEC, &iie) == 0) {
-            ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
-            if (handle) {
-                handle->fd = fd;
-                return handle;
-            }
-        }
-
-        close(fd);
+    DDCN_Display_Info_List *dlist;
+    
+    if (ddcn_get_display_info_list2(0, &dlist) != DDCN_OK || dlist->ct == 0) {
+        if (dlist) ddcn_free_display_info_list(dlist);
+        return NULL;
     }
-
-    return NULL;
+    
+    DDCN_Display_Ref dref = dlist->info[0].dref;
+    
+    ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
+    if (!handle) {
+        ddcn_free_display_info_list(dlist);
+        return NULL;
+    }
+    
+    if (ddcn_open_display2(dref, 0, &handle->dh) != DDCN_OK) {
+        free(handle);
+        ddcn_free_display_info_list(dlist);
+        return NULL;
+    }
+    
+    ddcn_free_display_info_list(dlist);
+    return handle;
 }
 
-int ddc_get_brightness(ddc_handle_t *h, int *current, int *max) {
-    uint8_t cmd[] = {0x51, 0x82, 0x01, VCP_BRIGHTNESS, 0x00, 0x00};
-    cmd[5] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3];
-
-    i2c_ioctl_exec_t iie;
-    memset(&iie, 0, sizeof(iie));
-    iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-    iie.iie_addr = DDC_ADDR;
-    iie.iie_cmd = cmd;
-    iie.iie_cmdlen = sizeof(cmd);
-
-    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0)
-        return -1;
-
-    usleep(40000);
-
-    uint8_t reply[12];
-    memset(&iie, 0, sizeof(iie));
-    iie.iie_op = I2C_OP_READ_WITH_STOP;
-    iie.iie_addr = DDC_ADDR;
-    iie.iie_buf = reply;
-    iie.iie_buflen = sizeof(reply);
-
-    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0)
-        return -1;
-
-    if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != VCP_BRIGHTNESS)
-        return -1;
-
-    *max = (reply[6] << 8) | reply[7];
-    *current = (reply[8] << 8) | reply[9];
+int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {
+    DDCN_Non_Table_Vcp_Value valrec;
+    DDCN_Status rc = ddcn_get_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, &valrec);
+    
+    if (rc != DDCN_OK) return -1;
+    
+    *current = valrec.sh << 8 | valrec.sl;
+    *max = valrec.mh << 8 | valrec.ml;
     return 0;
 }
 
-int ddc_set_brightness(ddc_handle_t *h, int value) {
-    uint8_t cmd[] = {0x51, 0x84, 0x03, VCP_BRIGHTNESS,
-                     (value >> 8) & 0xFF, value & 0xFF, 0x00};
-    cmd[6] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3] ^ cmd[4] ^ cmd[5];
-
-    i2c_ioctl_exec_t iie;
-    memset(&iie, 0, sizeof(iie));
-    iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-    iie.iie_addr = DDC_ADDR;
-    iie.iie_cmd = cmd;
-    iie.iie_cmdlen = sizeof(cmd);
-
-    return (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) == 0) ? 0 : -1;
+int ddc_set_brightness(ddc_handle_t *handle, int value) {
+    DDCN_Status rc = ddcn_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, 
+                                                    (value >> 8) & 0xFF, value & 0xFF);
+    return (rc == DDCN_OK) ? 0 : -1;
 }
 
-void ddc_close_display(ddc_handle_t *h) {
-    if (h) {
-        close(h->fd);
-        free(h);
+void ddc_close_display(ddc_handle_t *handle) {
+    if (handle) {
+        ddcn_close_display(handle->dh);
+        free(handle);
     }
 }
 

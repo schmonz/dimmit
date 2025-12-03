@@ -52,6 +52,13 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         "-framework CoreDisplay"
     )
     list(APPEND PLATFORM_LIBS ddcutil_macos)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+    # Build ddcutil_netbsd library
+    add_library(ddcutil_netbsd STATIC
+        ddcutil_netbsd.c
+        ddcutil_netbsd.h
+    )
+    list(APPEND PLATFORM_LIBS ddcutil_netbsd)
 endif ()
 
 add_executable(dimmitd
