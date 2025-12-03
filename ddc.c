@@ -111,11 +111,9 @@ void ddc_close_display(ddc_handle_t *handle) {
 #elif defined(__APPLE__)
 #include <pwd.h>
 #include <grp.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <IOKit/IOKitLib.h>
-#include <IOKit/graphics/IOGraphicsLib.h>
 #include <IOKit/i2c/IOI2CInterface.h>
 #include <ApplicationServices/ApplicationServices.h>
 
@@ -134,7 +132,7 @@ int ddc_is_authorized(int client_fd) {
     return 1;
 }
 
-static int ddc_write(ddc_handle_t *h, uint8_t *data, size_t len) {
+static int ddc_write(ddc_handle_t *h, const uint8_t *data, size_t len) {
     IOI2CRequest request;
     memset(&request, 0, sizeof(request));
 
@@ -148,7 +146,7 @@ static int ddc_write(ddc_handle_t *h, uint8_t *data, size_t len) {
     return (ret == kIOReturnSuccess) ? 0 : -1;
 }
 
-static int ddc_read(ddc_handle_t *h, uint8_t *data, size_t len) {
+static int ddc_read(ddc_handle_t *h, const uint8_t *data, size_t len) {
     IOI2CRequest request;
     memset(&request, 0, sizeof(request));
 
@@ -174,19 +172,59 @@ ddc_handle_t* ddc_open_display(void) {
     for (uint32_t i = 0; i < count; i++) {
         if (CGDisplayIsBuiltin(displays[i])) continue;
 
-        io_service_t framebuffer = CGDisplayIOServicePort(displays[i]);
+        /* Get IOService for this specific display using modern API */
+        CFMutableDictionaryRef matching = IOServiceMatching("IOFramebuffer");
+        if (!matching) continue;
+
+        /* Add the display's vendor/product to match criteria */
+        CFNumberRef vendorID = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &(uint32_t){CGDisplayVendorNumber(displays[i])});
+        CFNumberRef productID = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &(uint32_t){CGDisplayModelNumber(displays[i])});
+        
+        if (vendorID && productID) {
+            CFDictionarySetValue(matching, CFSTR("IODisplayVendorID"), vendorID);
+            CFDictionarySetValue(matching, CFSTR("IODisplayProductID"), productID);
+        }
+        if (vendorID) CFRelease(vendorID);
+        if (productID) CFRelease(productID);
+
+        io_iterator_t iterator;
+        if (IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) != kIOReturnSuccess)
+            continue;
+
+        io_service_t framebuffer = 0;
+        io_service_t service;
+        while ((service = IOIteratorNext(iterator)) != 0) {
+            /* Verify this framebuffer has I2C interface */
+            IOItemCount busCount;
+            if (IOFBGetI2CInterfaceCount(service, &busCount) == kIOReturnSuccess && busCount > 0) {
+                framebuffer = service;
+                break;
+            }
+            IOObjectRelease(service);
+        }
+        IOObjectRelease(iterator);
+
         if (!framebuffer) continue;
 
-        IOI2CConnectRef i2c;
-        if (IOFBGetI2CInterfaceCount(framebuffer, &(io_itemCount){1}) != kIOReturnSuccess)
+        io_service_t i2cService;
+        if (IOFBCopyI2CInterfaceForBus(framebuffer, 0, &i2cService) != kIOReturnSuccess) {
+            IOObjectRelease(framebuffer);
             continue;
+        }
 
-        if (IOFBCopyI2CInterfaceForBus(framebuffer, 0, &i2c) != kIOReturnSuccess)
+        IOI2CConnectRef i2c;
+        if (IOI2CInterfaceOpen(i2cService, kNilOptions, &i2c) != kIOReturnSuccess) {
+            IOObjectRelease(i2cService);
+            IOObjectRelease(framebuffer);
             continue;
+        }
+
+        IOObjectRelease(i2cService);
 
         ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
         if (!handle) {
-            IOObjectRelease(i2c);
+            IOI2CInterfaceClose(i2c, kNilOptions);
+            IOObjectRelease(framebuffer);
             continue;
         }
 
@@ -229,7 +267,7 @@ int ddc_set_brightness(ddc_handle_t *h, int value) {
 
 void ddc_close_display(ddc_handle_t *h) {
     if (h) {
-        if (h->i2c) IOObjectRelease(h->i2c);
+        if (h->i2c) IOI2CInterfaceClose(h->i2c, kNilOptions);
         free(h);
     }
 }
