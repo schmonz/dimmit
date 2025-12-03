@@ -1,0 +1,6 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define DIMMIT_SOCK_DEFAULT "@DIMMIT_SOCK_DEFAULT@"
+
+#endif

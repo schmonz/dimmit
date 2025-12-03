@@ -1,0 +1,11 @@
+[Unit]
+Description=Dimmit DDC Service
+After=graphical.target
+
+[Service]
+ExecStart=@CMAKE_INSTALL_FULL_SBINDIR@/dimmitd
+Restart=on-failure
+User=root
+
+[Install]
+WantedBy=graphical.target

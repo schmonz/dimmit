@@ -1,0 +1,73 @@
+cmake_minimum_required(VERSION 3.15)
+
+project(dimmit LANGUAGES C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
+include(CheckSymbolExists)
+include(GNUInstallDirs)
+
+set(DIMMIT_SOCK_DEFAULT "/tmp/dimmit.sock" CACHE STRING "Default Unix socket path for dimmit")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h @ONLY)
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service_systemd.service
+        ${CMAKE_CURRENT_BINARY_DIR}/service_systemd.service @ONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service_netbsd.sh
+        ${CMAKE_CURRENT_BINARY_DIR}/service_netbsd.sh @ONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service_darwin.plist
+        ${CMAKE_CURRENT_BINARY_DIR}/service_darwin.plist @ONLY)
+
+find_package(Threads REQUIRED)
+
+set(PLATFORM_LIBS)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND PLATFORM_LIBS rt)
+    find_package(PkgConfig QUIET)
+    if (PkgConfig_FOUND)
+        pkg_check_modules(DDCUTIL ddcutil)
+    endif ()
+    if (DDCUTIL_FOUND)
+        list(APPEND PLATFORM_LIBS ${DDCUTIL_LIBRARIES})
+    else ()
+        message(FATAL_ERROR "ddcutil not found. Please install libddcutil development files.")
+    endif ()
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    list(APPEND PLATFORM_LIBS "-framework IOKit" "-framework ApplicationServices" "-framework CoreGraphics")
+endif ()
+
+add_executable(dimmitd
+    dimmitd.c
+    ddc.c
+)
+target_include_directories(dimmitd
+    PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${DDCUTIL_INCLUDE_DIRS}
+)
+target_compile_options(dimmitd
+    PRIVATE
+    ${DDCUTIL_CFLAGS_OTHER}
+)
+target_link_libraries(dimmitd
+    PRIVATE
+    Threads::Threads
+    ${PLATFORM_LIBS}
+)
+
+add_executable(dimmitc
+    dimmitc.c
+)
+target_include_directories(dimmitc
+    PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+install(TARGETS dimmitd
+    RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR}
+)
+
+install(TARGETS dimmitc
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
