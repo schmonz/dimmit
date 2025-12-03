@@ -56,10 +56,17 @@ target_link_libraries(dimmitd
     ${PLATFORM_LIBS}
 )
 
-add_executable(dimmitc
-    dimmitc.c
+add_executable(dimmit-up
+    dimmit.c
 )
-target_include_directories(dimmitc
+add_executable(dimmit-down
+    dimmit.c
+)
+target_include_directories(dimmit-up
+    PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_include_directories(dimmit-down
     PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
 )
@@ -68,6 +75,6 @@ install(TARGETS dimmitd
     RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR}
 )
 
-install(TARGETS dimmitc
+install(TARGETS dimmit-up dimmit-down
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

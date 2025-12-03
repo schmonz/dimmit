@@ -22,7 +22,7 @@ sudo usermod -a -G video $(whoami)
 newgrp video
 cd build
 sudo ./dimmitd >/dev/null &
-./dimmitc down
+./dimmit-down
 ```
 
-If it works, great! Install, see the example service files, and wire up your brightness keys to `dimmitc`.
+If it works, great! Install, see the example service files, and map your brightness keys to `dimmit-up` and `dimmit-down`.
