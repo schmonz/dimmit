@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
 
+# Minimum macOS 12 required for kIOMainPortDefault API
+if (APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
+endif ()
+
 project(dimmit LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
