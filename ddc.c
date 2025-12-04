@@ -1,10 +1,13 @@
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
+
 #include "ddc.h"
 #include "ddc_constants.h"
 #include <stdlib.h>
 
 /* Platform-specific includes and API mappings */
 #if defined(__linux__)
-#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <pwd.h>
