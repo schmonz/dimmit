@@ -1,4 +1,4 @@
-#include "ddcutil_netbsd.h"
+#include "ddcutil_compat.h"
 #include "ddc_constants.h"
 #include <stdlib.h>
 #include <string.h>

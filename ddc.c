@@ -24,28 +24,18 @@
 #define DDC_Non_Table_Vcp_Value DDCA_Non_Table_Vcp_Value
 
 #elif defined(__APPLE__)
-#include "ddcutil_macos.h"
+#include "ddcutil_compat.h"
 
-#define DDC_PREFIX ddcm
-#define DDC_STATUS DDCM_Status
-#define DDC_OK DDCM_OK
-#define DDC_Display_Handle DDCM_Display_Handle
-#define DDC_Display_Info_List DDCM_Display_Info_List
-#define DDC_Display_Ref DDCM_Display_Ref
-#define DDC_Non_Table_Vcp_Value DDCM_Non_Table_Vcp_Value
+#define DDC_PREFIX ddc
+#define DDC_STATUS DDC_Status
 
 #elif defined(__NetBSD__)
 #include <pwd.h>
 #include <grp.h>
-#include "ddcutil_netbsd.h"
+#include "ddcutil_compat.h"
 
-#define DDC_PREFIX ddcn
-#define DDC_STATUS DDCN_Status
-#define DDC_OK DDCN_OK
-#define DDC_Display_Handle DDCN_Display_Handle
-#define DDC_Display_Info_List DDCN_Display_Info_List
-#define DDC_Display_Ref DDCN_Display_Ref
-#define DDC_Non_Table_Vcp_Value DDCN_Non_Table_Vcp_Value
+#define DDC_PREFIX ddc
+#define DDC_STATUS DDC_Status
 
 #else
 #error "Platform not yet supported"

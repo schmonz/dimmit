@@ -41,7 +41,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     add_library(ddcutil_macos STATIC
         ddcutil_macos.c
-        ddcutil_macos.h
+        ddcutil_compat.h
     )
     target_link_libraries(ddcutil_macos
         PUBLIC
@@ -54,7 +54,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
     add_library(ddcutil_netbsd STATIC
         ddcutil_netbsd.c
-        ddcutil_netbsd.h
+        ddcutil_compat.h
     )
     list(APPEND PLATFORM_LIBS ddcutil_netbsd)
 endif ()
