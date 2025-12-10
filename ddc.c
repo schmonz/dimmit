@@ -7,6 +7,21 @@
 #include "ddc_constants.h"
 #include <stdlib.h>
 
+#ifndef DDC_ERROR
+#define DDC_ERROR -1
+#endif
+
+/* Map ddc_ symbols to libddcutil's ddca_ symbols */
+#define ddc_get_display_info_list2   ddca_get_display_info_list2
+#define ddc_free_display_info_list   ddca_free_display_info_list
+#define ddc_open_display2            ddca_open_display2
+#define ddc_close_display2           ddca_close_display
+#define ddc_get_non_table_vcp_value  ddca_get_non_table_vcp_value
+#define ddc_set_non_table_vcp_value  ddca_set_non_table_vcp_value
+
+/* Status codes matching libddcutil convention */
+#include <stdlib.h>
+
 /* Unified compat API */
 #include "ddcutil_compat.h"
 
@@ -22,21 +37,6 @@
 #include <grp.h>
 #endif
 
-/* Resolve API prefix per-platform:
- * - On Linux, use libddcutil's ddca_* symbols directly.
- * - On other platforms, use our compat layer's ddc_* symbols. */
-#if defined(__linux__)
-#define DDC_PREFIX ddca
-#else
-#define DDC_PREFIX ddc
-#endif
-#define DDC_STATUS DDC_Status
-
-/* Token pasting macros to create platform-specific function names */
-#define DDC_CONCAT_IMPL(prefix, name) prefix##_##name
-#define DDC_CONCAT(prefix, name) DDC_CONCAT_IMPL(prefix, name)
-#define DDC_FUNC(name) DDC_CONCAT(DDC_PREFIX, name)
-
 /* Unified handle structure */
 struct ddc_handle {
     DDC_Display_Handle dh;
@@ -45,11 +45,11 @@ struct ddc_handle {
 /* Unified ddc_open_display implementation for all platforms */
 ddc_handle_t* ddc_open_display(void) {
     DDC_Display_Info_List *dlist;
-    DDC_STATUS rc;
+    DDC_Status rc;
 
-    rc = DDC_FUNC(get_display_info_list2)(0, &dlist);
+    rc = ddc_get_display_info_list2(0, &dlist);
     if (rc != DDC_OK || dlist->ct == 0) {
-        if (rc == DDC_OK) DDC_FUNC(free_display_info_list)(dlist);
+        if (rc == DDC_OK) ddc_free_display_info_list(dlist);
         return NULL;
     }
 
@@ -64,7 +64,7 @@ ddc_handle_t* ddc_open_display(void) {
     }
     
     if (!dref) {
-        DDC_FUNC(free_display_info_list)(dlist);
+        ddc_free_display_info_list(dlist);
         return NULL;
     }
 #else
@@ -74,12 +74,12 @@ ddc_handle_t* ddc_open_display(void) {
 
     ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
     if (!handle) {
-        DDC_FUNC(free_display_info_list)(dlist);
+        ddc_free_display_info_list(dlist);
         return NULL;
     }
 
-    rc = DDC_FUNC(open_display2)(dref, 0, &handle->dh);
-    DDC_FUNC(free_display_info_list)(dlist);
+    rc = ddc_open_display2(dref, 0, &handle->dh);
+    ddc_free_display_info_list(dlist);
 
     if (rc != DDC_OK) {
         free(handle);
@@ -180,7 +180,7 @@ int ddc_is_authorized(int client_fd) {
 /* Unified ddc_get_brightness implementation for all platforms */
 int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {
     DDC_Non_Table_Vcp_Value valrec;
-    DDC_STATUS rc = DDC_FUNC(get_non_table_vcp_value)(handle->dh, VCP_BRIGHTNESS, &valrec);
+    DDC_Status rc = ddc_get_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, &valrec);
     
     if (rc != DDC_OK) return -1;
     
@@ -193,31 +193,19 @@ int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {
 int ddc_set_brightness(ddc_handle_t *handle, int value) {
 #if defined(__linux__)
     /* Linux uses single-byte value */
-    DDC_STATUS rc = DDC_FUNC(set_non_table_vcp_value)(handle->dh, VCP_BRIGHTNESS, 0, value);
+    DDC_Status rc = ddc_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, 0, value);
 #else
     /* macOS and NetBSD use two-byte value */
-    DDC_STATUS rc = DDC_FUNC(set_non_table_vcp_value)(handle->dh, VCP_BRIGHTNESS, 
+    DDC_Status rc = ddc_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS,
                                                        (value >> 8) & 0xFF, value & 0xFF);
 #endif
     return (rc == DDC_OK) ? 0 : -1;
 }
 
-/* Avoid macro collision with Linux compat mapping for ddc_close_display */
-#if defined(__linux__)
-#ifdef ddc_close_display
-#undef ddc_close_display
-#endif
-#endif
-
 /* Unified ddc_close_display implementation for all platforms */
 void ddc_close_display(ddc_handle_t *handle) {
     if (handle) {
-        /* ddca_close_display2 does not exist; use ddca_close_display on Linux. */
-#if defined(__linux__)
-        ddca_close_display(handle->dh);
-#else
         ddc_close_display2(handle->dh);
-#endif
         free(handle);
     }
 }
