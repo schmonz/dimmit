@@ -1,3 +1,4 @@
+/* Ensure GNU extensions for Linux-specific APIs */
 #if defined(__linux__)
 #define _GNU_SOURCE
 #endif
@@ -21,7 +22,8 @@
 #include <grp.h>
 #endif
 
-/* All platforms call the compat API with "ddc_" prefix */
+/* All platforms call the compat API with "ddc_" prefix. On Linux, the
+ * compat header maps these to ddca_* symbols from libddcutil. */
 #define DDC_PREFIX ddc
 #define DDC_STATUS DDC_Status
 
@@ -194,6 +196,13 @@ int ddc_set_brightness(ddc_handle_t *handle, int value) {
 #endif
     return (rc == DDC_OK) ? 0 : -1;
 }
+
+/* Avoid macro collision with Linux compat mapping for ddc_close_display */
+#if defined(__linux__)
+#ifdef ddc_close_display
+#undef ddc_close_display
+#endif
+#endif
 
 /* Unified ddc_close_display implementation for all platforms */
 void ddc_close_display(ddc_handle_t *handle) {

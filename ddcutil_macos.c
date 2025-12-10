@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <IOKit/IOKitLib.h>
 #include <IOKit/i2c/IOI2CInterface.h>
+#include <IOKit/graphics/IOGraphicsLib.h>
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreGraphics/CoreGraphics.h>
 
