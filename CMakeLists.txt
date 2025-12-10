@@ -62,7 +62,9 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
 endif ()
 
 # Link the compat library on all platforms
-list(APPEND PLATFORM_LIBS ddcutil_compat)
+# Ensure link order so that symbols referenced by ddcutil_compat
+# are satisfied by platform libs that follow (e.g., -lddcutil on Linux).
+list(PREPEND PLATFORM_LIBS ddcutil_compat)
 
 add_executable(dimmitd
     dimmitd.c
