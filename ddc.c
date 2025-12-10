@@ -6,10 +6,6 @@
 #include "ddc.h"
 #include <stdlib.h>
 
-#ifndef DDC_ERROR
-#define DDC_ERROR -1
-#endif
-
 /* On Linux, map compat-like names to libddcutil's ddca_* symbols. */
 #if defined(__linux__)
 #define ddc_get_display_info_list2   ddca_get_display_info_list2
@@ -115,7 +111,7 @@ DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle
     return ddca_open_display2(dref, flags, handle_out);
 }
 
-DDC_Status ddc_close_display(DDC_Display_Handle handle) {
+DDC_Status ddc_close_display2(DDC_Display_Handle handle) {
     return ddca_close_display(handle);
 }
 
@@ -370,7 +366,7 @@ DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle
     return DDC_ERROR;
 }
 
-DDC_Status ddc_close_display(DDC_Display_Handle handle) {
+DDC_Status ddc_close_display2(DDC_Display_Handle handle) {
     if (handle) {
         if (handle->method == DDC_METHOD_INTEL) {
             if (handle->data.intel.i2c) {
@@ -629,7 +625,7 @@ DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle
     return DDC_OK;
 }
 
-DDC_Status ddc_close_display(DDC_Display_Handle handle) {
+DDC_Status ddc_close_display2(DDC_Display_Handle handle) {
     if (!handle) return DDC_ERROR;
 
     if (handle->fd >= 0) {
