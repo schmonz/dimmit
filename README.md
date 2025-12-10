@@ -5,6 +5,9 @@ Dimmit lets them do the same for external displays.
 
 Tested on Linux amd64 and macOS arm64. Other platforms welcome. (There's untested code for NetBSD and macOS amd64.)
 
+Dimmit is heavily vibe-coded.
+I certainly didn't know the first thing about how to control monitor brightness on any platform, and would not have bothered writing Dimmit without LLM help.
+
 ## Build
 
 Build-time dependencies:

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <ctype.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <pwd.h>
@@ -13,6 +14,17 @@
 /* Wrap libddcutil types inside our opaque structs */
 struct DDC_Display_Ref_s { DDCA_Display_Ref dref; };
 struct DDC_Display_Handle_s { DDCA_Display_Handle dh; };
+
+/* Convert a 3-letter manufacturer code (e.g., "DEL") to the 16-bit EISA ID.
+ * Returns 0 on invalid input. */
+static uint32_t eisa_id_from_mfg(const char *mfg) {
+    if (!mfg || !mfg[0] || !mfg[1] || !mfg[2]) return 0;
+    int a = toupper((unsigned char)mfg[0]) - 'A' + 1;
+    int b = toupper((unsigned char)mfg[1]) - 'A' + 1;
+    int c = toupper((unsigned char)mfg[2]) - 'A' + 1;
+    if (a < 1 || a > 26 || b < 1 || b > 26 || c < 1 || c > 26) return 0;
+    return (uint32_t)((a << 10) | (b << 5) | c);
+}
 
 DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **list_out) {
     DDCA_Display_Info_List *dl = NULL;
@@ -34,7 +46,8 @@ DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **lis
         }
         wr->dref = dl->info[i].dref;
         out->info[i].dref = (DDC_Display_Ref)wr;
-        out->info[i].vendor_id = dl->info[i].mfg_id; /* best-effort mapping */
+        /* Map 3-letter manufacturer code to EISA ID for vendor_id */
+        out->info[i].vendor_id = eisa_id_from_mfg(dl->info[i].mfg_id);
         out->info[i].product_id = dl->info[i].product_code;
         out->info[i].is_builtin = 0; /* libddcutil does not expose this; assume external */
     }
