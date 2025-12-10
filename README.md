@@ -12,7 +12,7 @@ I certainly didn't know the first thing about how to control monitor brightness 
 
 Build-time dependencies:
 - CMake
-- `libddcutil-dev` (on Linux)
+- `pkg-config` and `libddcutil-dev` (on Linux)
 
 Run-time dependencies:
 - `libddcutil4` (on Linux)
