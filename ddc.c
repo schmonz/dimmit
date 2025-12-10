@@ -22,9 +22,14 @@
 #include <grp.h>
 #endif
 
-/* All platforms call the compat API with "ddc_" prefix. On Linux, the
- * compat header maps these to ddca_* symbols from libddcutil. */
+/* Resolve API prefix per-platform:
+ * - On Linux, use libddcutil's ddca_* symbols directly.
+ * - On other platforms, use our compat layer's ddc_* symbols. */
+#if defined(__linux__)
+#define DDC_PREFIX ddca
+#else
 #define DDC_PREFIX ddc
+#endif
 #define DDC_STATUS DDC_Status
 
 /* Token pasting macros to create platform-specific function names */
@@ -207,7 +212,12 @@ int ddc_set_brightness(ddc_handle_t *handle, int value) {
 /* Unified ddc_close_display implementation for all platforms */
 void ddc_close_display(ddc_handle_t *handle) {
     if (handle) {
-        DDC_FUNC(close_display2)(handle->dh);
+        /* ddca_close_display2 does not exist; use ddca_close_display on Linux. */
+#if defined(__linux__)
+        ddca_close_display(handle->dh);
+#else
+        ddc_close_display2(handle->dh);
+#endif
         free(handle);
     }
 }
