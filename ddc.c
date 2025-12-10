@@ -1,33 +1,18 @@
-/* Ensure GNU extensions for Linux-specific APIs */
 #if defined(__linux__)
 #define _GNU_SOURCE
 #endif
 
 #include "ddc.h"
 #include <stdlib.h>
-
-/* On Linux, map compat-like names to libddcutil's ddca_* symbols. */
-#if defined(__linux__)
-#define ddc_get_display_info_list2   ddca_get_display_info_list2
-#define ddc_free_display_info_list   ddca_free_display_info_list
-#define ddc_open_display2            ddca_open_display2
-#define ddc_close_display2           ddca_close_display
-#define ddc_get_non_table_vcp_value  ddca_get_non_table_vcp_value
-#define ddc_set_non_table_vcp_value  ddca_set_non_table_vcp_value
-#endif
-
-/* Types and non-Linux implementations */
 #include <stdint.h>
 
 #if defined(__linux__)
 #include <ddcutil_c_api.h>
-/* On Linux, keep types compatible with libddcutil */
 typedef DDCA_Status DDC_Status;
 typedef DDCA_Display_Handle DDC_Display_Handle;
 typedef DDCA_Display_Ref DDC_Display_Ref;
 typedef DDCA_Display_Info_List DDC_Display_Info_List;
 typedef DDCA_Non_Table_Vcp_Value DDC_Non_Table_Vcp_Value;
-
 #ifndef DDC_OK
 #define DDC_OK 0
 #endif
@@ -35,20 +20,97 @@ typedef DDCA_Non_Table_Vcp_Value DDC_Non_Table_Vcp_Value;
 #define DDC_ERROR -1
 #endif
 
-#else /* non-Linux: provide a uniform interface implemented per-OS */
+static inline DDC_Status ddc_get_display_info_list2(int flags, DDC_Display_Info_List **list_out) {
+    return ddca_get_display_info_list2(flags, list_out);
+}
 
-/* Status codes matching libddcutil convention */
+static inline void ddc_free_display_info_list(DDC_Display_Info_List *list) {
+    ddca_free_display_info_list(list);
+}
+
+static inline DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
+    return ddca_open_display2(dref, flags, handle_out);
+}
+
+static inline DDC_Status ddc_close_display2(DDC_Display_Handle handle) {
+    return ddca_close_display(handle);
+}
+
+static inline DDC_Status ddc_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
+    return ddca_get_non_table_vcp_value(handle, feature_code, value_out);
+}
+
+static inline DDC_Status ddc_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
+    return ddca_set_non_table_vcp_value(handle, feature_code, hi_byte, lo_byte);
+}
+
+/* Authorization (Linux): require 'video' group */
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
+#include <stdio.h>
+
+struct ddc_handle { DDC_Display_Handle dh; };
+
+ddc_handle_t* ddc_open_display(void) {
+    DDC_Display_Info_List *dlist;
+    if (ddc_get_display_info_list2(0, &dlist) != DDC_OK || dlist->ct == 0) {
+        if (dlist) ddc_free_display_info_list(dlist);
+        return NULL;
+    }
+    DDC_Display_Ref dref = dlist->info[0].dref;
+    ddc_handle_t *h = malloc(sizeof(*h));
+    if (!h) { ddc_free_display_info_list(dlist); return NULL; }
+    if (ddc_open_display2(dref, 0, &h->dh) != DDC_OK) { ddc_free_display_info_list(dlist); free(h); return NULL; }
+    ddc_free_display_info_list(dlist);
+    return h;
+}
+
+int ddc_is_authorized(int client_fd) {
+    struct ucred cred; socklen_t len = sizeof(cred);
+    if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) < 0) return 0;
+    struct group *video_grp = getgrnam("video");
+    if (!video_grp) return 1;
+    struct passwd *pw = getpwuid(cred.uid);
+    if (pw && pw->pw_gid == video_grp->gr_gid) return 1;
+    int ngroups = 0; getgrouplist(pw ? pw->pw_name : "", cred.gid, NULL, &ngroups);
+    gid_t *groups = malloc(ngroups * sizeof(gid_t)); if (!groups) return 0;
+    getgrouplist(pw ? pw->pw_name : "", cred.gid, groups, &ngroups);
+    int ok = 0; for (int i = 0; i < ngroups; i++) if (groups[i] == video_grp->gr_gid) { ok = 1; break; }
+    free(groups);
+    return ok;
+}
+
+int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {
+    DDC_Non_Table_Vcp_Value v; if (ddc_get_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, &v) != DDC_OK) return -1;
+    *current = (v.sh << 8) | v.sl; *max = (v.mh << 8) | v.ml; return 0;
+}
+
+int ddc_set_brightness(ddc_handle_t *handle, int value) {
+    return ddc_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, 0, (uint8_t)value) == DDC_OK ? 0 : -1;
+}
+
+void ddc_close_display(ddc_handle_t *handle) {
+    if (!handle) return; ddc_close_display2(handle->dh); free(handle);
+}
+
+#elif defined(__APPLE__)
+#include <unistd.h>
+#include <CoreGraphics/CoreGraphics.h>
+#include <ApplicationServices/ApplicationServices.h>
+#include <IOKit/IOKitLib.h>
+#include <IOKit/i2c/IOI2CInterface.h>
+#include <IOKit/graphics/IOGraphicsLib.h>
+
+/* Define compat types for the unified interface on macOS */
 typedef int DDC_Status;
 #define DDC_OK 0
 #define DDC_ERROR -1
 
-/* Display handle - opaque type */
+typedef struct DDC_Display_Ref_s *DDC_Display_Ref;
 typedef struct DDC_Display_Handle_s *DDC_Display_Handle;
 
-/* Display reference - opaque type */
-typedef struct DDC_Display_Ref_s *DDC_Display_Ref;
-
-/* Display info for enumeration */
 typedef struct {
     DDC_Display_Ref dref;
     uint32_t vendor_id;
@@ -56,82 +118,17 @@ typedef struct {
     int is_builtin;
 } DDC_Display_Info;
 
-/* Display info list */
 typedef struct {
-    int ct;  /* count */
+    int ct; /* count */
     DDC_Display_Info *info;
 } DDC_Display_Info_List;
 
-/* VCP (Virtual Control Panel) value structure */
 typedef struct {
-    uint8_t mh;  /* max high byte */
-    uint8_t ml;  /* max low byte */
-    uint8_t sh;  /* current (set) high byte */
-    uint8_t sl;  /* current (set) low byte */
+    uint8_t mh; /* max high byte */
+    uint8_t ml; /* max low byte */
+    uint8_t sh; /* current high byte */
+    uint8_t sl; /* current low byte */
 } DDC_Non_Table_Vcp_Value;
-
-/* Get list of detected displays */
-DDC_Status ddc_get_display_info_list2(int flags, DDC_Display_Info_List **list_out);
-
-/* Free display info list */
-void ddc_free_display_info_list(DDC_Display_Info_List *list);
-
-/* Open a display for DDC communication */
-DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out);
-
-/* Close display handle */
-DDC_Status ddc_close_display2(DDC_Display_Handle handle);
-
-/* Get VCP feature value (non-table) */
-DDC_Status ddc_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out);
-
-/* Set VCP feature value (non-table) */
-DDC_Status ddc_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte);
-
-#endif /* __linux__ */
-
-#if !defined(__linux__)
-
-#include <stdlib.h>
-#include <string.h>
-
-#if defined(__linux__)
-/* Linux: delegate to libddcutil */
-#include <ddcutil_c_api.h>
-
-DDC_Status ddc_get_display_info_list2(int flags, DDC_Display_Info_List **list_out) {
-    return ddca_get_display_info_list2(flags, list_out);
-}
-
-void ddc_free_display_info_list(DDC_Display_Info_List *list) {
-    ddca_free_display_info_list(list);
-}
-
-DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
-    return ddca_open_display2(dref, flags, handle_out);
-}
-
-DDC_Status ddc_close_display2(DDC_Display_Handle handle) {
-    return ddca_close_display(handle);
-}
-
-DDC_Status ddc_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
-    return ddca_get_non_table_vcp_value(handle, feature_code, value_out);
-}
-
-DDC_Status ddc_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
-    return ddca_set_non_table_vcp_value(handle, feature_code, hi_byte, lo_byte);
-}
-
-#elif defined(__APPLE__)
-/* macOS: inline previous implementation */
-
-#include <unistd.h>
-#include <CoreGraphics/CoreGraphics.h>
-#include <ApplicationServices/ApplicationServices.h>
-#include <IOKit/IOKitLib.h>
-#include <IOKit/i2c/IOI2CInterface.h>
-#include <IOKit/graphics/IOGraphicsLib.h>
 
 /* Private IOAVService APIs for Apple Silicon */
 typedef struct __IOAVService *IOAVServiceRef;
@@ -492,9 +489,33 @@ DDC_Status ddc_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_cod
     }
 }
 
-#elif defined(__NetBSD__)
-/* NetBSD: inline previous implementation */
+/* Authorization (macOS): allow any local user */
+int ddc_is_authorized(int client_fd) { (void)client_fd; return 1; }
 
+/* Public API wrappers (macOS) */
+struct ddc_handle { DDC_Display_Handle dh; };
+
+ddc_handle_t* ddc_open_display(void) {
+    DDC_Display_Info_List *dlist; if (ddc_get_display_info_list2(0, &dlist) != DDC_OK || dlist->ct == 0) { if (dlist) ddc_free_display_info_list(dlist); return NULL; }
+    DDC_Display_Ref dref = NULL; for (int i = 0; i < dlist->ct; i++) { if (!dlist->info[i].is_builtin) { dref = dlist->info[i].dref; break; } }
+    if (!dref) { ddc_free_display_info_list(dlist); return NULL; }
+    ddc_handle_t *h = malloc(sizeof(*h)); if (!h) { ddc_free_display_info_list(dlist); return NULL; }
+    if (ddc_open_display2(dref, 0, &h->dh) != DDC_OK) { ddc_free_display_info_list(dlist); free(h); return NULL; }
+    ddc_free_display_info_list(dlist); return h;
+}
+
+int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {
+    DDC_Non_Table_Vcp_Value v; if (ddc_get_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, &v) != DDC_OK) return -1;
+    *current = (v.sh << 8) | v.sl; *max = (v.mh << 8) | v.ml; return 0;
+}
+
+int ddc_set_brightness(ddc_handle_t *handle, int value) {
+    return ddc_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, (value >> 8) & 0xFF, value & 0xFF) == DDC_OK ? 0 : -1;
+}
+
+void ddc_close_display(ddc_handle_t *handle) { if (!handle) return; ddc_close_display2(handle->dh); free(handle); }
+
+#elif defined(__NetBSD__)
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -590,304 +611,65 @@ DDC_Status ddc_get_display_info_list2(int flags, DDC_Display_Info_List **list_ou
 
 void ddc_free_display_info_list(DDC_Display_Info_List *list) {
     if (!list) return;
-
-    if (list->info) {
-        for (int i = 0; i < list->ct; i++) {
-            if (list->info[i].dref) {
-                free(list->info[i].dref);
-            }
-        }
-        free(list->info);
-    }
-
+    if (list->info) { for (int i = 0; i < list->ct; i++) { free(list->info[i].dref); } free(list->info); }
     free(list);
 }
 
 DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
-    (void)flags;
-
-    if (!dref || !handle_out) return DDC_ERROR;
-
-    int fd = open(dref->device_path, O_RDWR);
-    if (fd < 0) return DDC_ERROR;
-
-    DDC_Display_Handle handle = malloc(sizeof(struct DDC_Display_Handle_s));
-    if (!handle) {
-        close(fd);
-        return DDC_ERROR;
-    }
-
-    handle->fd = fd;
-    handle->max_brightness = 100;
-    handle->current_brightness = 50;
-
-    *handle_out = handle;
-    return DDC_OK;
+    (void)flags; if (!dref || !handle_out) return DDC_ERROR; int fd = open(dref->device_path, O_RDWR); if (fd < 0) return DDC_ERROR;
+    DDC_Display_Handle h = malloc(sizeof(*h)); if (!h) { close(fd); return DDC_ERROR; }
+    h->fd = fd; h->max_brightness = 100; h->current_brightness = 50; *handle_out = h; return DDC_OK;
 }
 
-DDC_Status ddc_close_display2(DDC_Display_Handle handle) {
-    if (!handle) return DDC_ERROR;
-
-    if (handle->fd >= 0) {
-        close(handle->fd);
-    }
-
-    free(handle);
-    return DDC_OK;
-}
+DDC_Status ddc_close_display2(DDC_Display_Handle handle) { if (!handle) return DDC_ERROR; if (handle->fd >= 0) close(handle->fd); free(handle); return DDC_OK; }
 
 DDC_Status ddc_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
     if (!h || !value_out) return DDC_ERROR;
-
-    uint8_t cmd[] = {0x51, 0x82, 0x01, feature_code, 0x00, 0x00};
-    cmd[5] = ddc_checksum(0x6E, cmd, sizeof(cmd) - 1);
-
-    i2c_ioctl_exec_t iie;
-    memset(&iie, 0, sizeof(iie));
-    iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-    iie.iie_addr = DDC_ADDR_7BIT;
-    iie.iie_cmd = cmd;
-    iie.iie_cmdlen = sizeof(cmd);
-
-    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) {
-        return DDC_ERROR;
-    }
-
-    usleep(40000);
-
-    uint8_t reply[12];
-    memset(&iie, 0, sizeof(iie));
-    iie.iie_op = I2C_OP_READ_WITH_STOP;
-    iie.iie_addr = DDC_ADDR_7BIT;
-    iie.iie_buf = reply;
-    iie.iie_buflen = sizeof(reply);
-
-    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) {
-        return DDC_ERROR;
-    }
-
-    if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != feature_code) {
-        return DDC_ERROR;
-    }
-
-    value_out->mh = reply[6];
-    value_out->ml = reply[7];
-    value_out->sh = reply[8];
-    value_out->sl = reply[9];
-
-    h->max_brightness = (reply[6] << 8) | reply[7];
-    h->current_brightness = (reply[8] << 8) | reply[9];
-
-    return DDC_OK;
+    uint8_t cmd[] = {0x51, 0x82, 0x01, feature_code, 0x00, 0x00}; cmd[5] = ddc_checksum(0x6E, cmd, (int)sizeof(cmd) - 1);
+    i2c_ioctl_exec_t iie; memset(&iie, 0, sizeof(iie)); iie.iie_op = I2C_OP_WRITE_WITH_STOP; iie.iie_addr = DDC_ADDR_7BIT; iie.iie_cmd = cmd; iie.iie_cmdlen = sizeof(cmd);
+    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) return DDC_ERROR; usleep(40000);
+    uint8_t reply[12]; memset(&iie, 0, sizeof(iie)); iie.iie_op = I2C_OP_READ_WITH_STOP; iie.iie_addr = DDC_ADDR_7BIT; iie.iie_buf = reply; iie.iie_buflen = sizeof(reply);
+    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) return DDC_ERROR; if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != feature_code) return DDC_ERROR;
+    value_out->mh = reply[6]; value_out->ml = reply[7]; value_out->sh = reply[8]; value_out->sl = reply[9];
+    h->max_brightness = (reply[6] << 8) | reply[7]; h->current_brightness = (reply[8] << 8) | reply[9]; return DDC_OK;
 }
 
 DDC_Status ddc_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
-    if (!h) return DDC_ERROR;
-
-    uint8_t cmd[] = {0x51, 0x84, 0x03, feature_code, hi_byte, lo_byte, 0x00};
-    cmd[6] = ddc_checksum(0x6E, cmd, sizeof(cmd) - 1);
-
-    i2c_ioctl_exec_t iie;
-    memset(&iie, 0, sizeof(iie));
-    iie.iie_op = I2C_OP_WRITE_WITH_STOP;
-    iie.iie_addr = DDC_ADDR_7BIT;
-    iie.iie_cmd = cmd;
-    iie.iie_cmdlen = sizeof(cmd);
-
-    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) {
-        return DDC_ERROR;
-    }
-
-    h->current_brightness = (hi_byte << 8) | lo_byte;
-    return DDC_OK;
+    if (!h) return DDC_ERROR; uint8_t cmd[] = {0x51, 0x84, 0x03, feature_code, hi_byte, lo_byte, 0x00}; cmd[6] = ddc_checksum(0x6E, cmd, (int)sizeof(cmd) - 1);
+    i2c_ioctl_exec_t iie; memset(&iie, 0, sizeof(iie)); iie.iie_op = I2C_OP_WRITE_WITH_STOP; iie.iie_addr = DDC_ADDR_7BIT; iie.iie_cmd = cmd; iie.iie_cmdlen = sizeof(cmd);
+    if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) return DDC_ERROR; h->current_brightness = (hi_byte << 8) | lo_byte; return DDC_OK;
 }
+
+/* Authorization (NetBSD): require 'wheel' group */
+#include <pwd.h>
+#include <grp.h>
+
+struct ddc_handle { DDC_Display_Handle dh; };
+
+ddc_handle_t* ddc_open_display(void) {
+    DDC_Display_Info_List *dlist; if (ddc_get_display_info_list2(0, &dlist) != DDC_OK || dlist->ct == 0) { if (dlist) ddc_free_display_info_list(dlist); return NULL; }
+    DDC_Display_Ref dref = dlist->info[0].dref; ddc_handle_t *h = malloc(sizeof(*h)); if (!h) { ddc_free_display_info_list(dlist); return NULL; }
+    if (ddc_open_display2(dref, 0, &h->dh) != DDC_OK) { ddc_free_display_info_list(dlist); free(h); return NULL; }
+    ddc_free_display_info_list(dlist); return h;
+}
+
+int ddc_is_authorized(int client_fd) {
+    uid_t euid; gid_t egid; if (getpeereid(client_fd, &euid, &egid) < 0) return 0; struct group *wheel = getgrnam("wheel"); if (!wheel) return 1;
+    struct passwd *pw = getpwuid(euid); if (pw && pw->pw_gid == wheel->gr_gid) return 1; int ng = 0; getgrouplist(pw ? pw->pw_name : "", egid, NULL, &ng);
+    gid_t *gs = malloc(ng * sizeof(gid_t)); if (!gs) return 0; getgrouplist(pw ? pw->pw_name : "", egid, gs, &ng);
+    int ok = 0; for (int i = 0; i < ng; i++) if (gs[i] == wheel->gr_gid) { ok = 1; break; } free(gs); return ok;
+}
+
+int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {
+    DDC_Non_Table_Vcp_Value v; if (ddc_get_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, &v) != DDC_OK) return -1; *current = (v.sh << 8) | v.sl; *max = (v.mh << 8) | v.ml; return 0;
+}
+
+int ddc_set_brightness(ddc_handle_t *handle, int value) {
+    return ddc_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, (value >> 8) & 0xFF, value & 0xFF) == DDC_OK ? 0 : -1;
+}
+
+void ddc_close_display(ddc_handle_t *handle) { if (!handle) return; ddc_close_display2(handle->dh); free(handle); }
 
 #else
 #error "Platform not yet supported"
 #endif
-#endif
-
-/* Platform-specific includes used only for authorization checks */
-#if defined(__linux__)
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <pwd.h>
-#include <grp.h>
-#include <stdio.h>
-#elif defined(__NetBSD__)
-#include <pwd.h>
-#include <grp.h>
-#endif
-
-/* Unified handle structure */
-struct ddc_handle {
-    DDC_Display_Handle dh;
-};
-
-/* Unified ddc_open_display implementation for all platforms */
-ddc_handle_t* ddc_open_display(void) {
-    DDC_Display_Info_List *dlist;
-    DDC_Status rc;
-
-    rc = ddc_get_display_info_list2(0, &dlist);
-    if (rc != DDC_OK || dlist->ct == 0) {
-        if (rc == DDC_OK) ddc_free_display_info_list(dlist);
-        return NULL;
-    }
-
-#if defined(__APPLE__)
-    /* Find first external display on macOS */
-    DDC_Display_Ref dref = NULL;
-    for (int i = 0; i < dlist->ct; i++) {
-        if (!dlist->info[i].is_builtin) {
-            dref = dlist->info[i].dref;
-            break;
-        }
-    }
-    
-    if (!dref) {
-        ddc_free_display_info_list(dlist);
-        return NULL;
-    }
-#else
-    /* Use first display on other platforms */
-    DDC_Display_Ref dref = dlist->info[0].dref;
-#endif
-
-    ddc_handle_t *handle = malloc(sizeof(ddc_handle_t));
-    if (!handle) {
-        ddc_free_display_info_list(dlist);
-        return NULL;
-    }
-
-    rc = ddc_open_display2(dref, 0, &handle->dh);
-    ddc_free_display_info_list(dlist);
-
-    if (rc != DDC_OK) {
-        free(handle);
-        return NULL;
-    }
-
-    return handle;
-}
-
-/* Unified ddc_is_authorized implementation for all platforms */
-int ddc_is_authorized(int client_fd) {
-#if defined(__APPLE__)
-    /* macOS: allow any local user */
-    (void)client_fd;
-    return 1;
-    
-#elif defined(__linux__)
-    /* Linux: check for 'video' group membership */
-    struct ucred cred;
-    socklen_t len = sizeof(cred);
-
-    if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) < 0) {
-        perror("getsockopt SO_PEERCRED");
-        return 0;
-    }
-
-    struct group *video_grp = getgrnam("video");
-    if (!video_grp) {
-        fprintf(stderr, "Warning: 'video' group not found, allowing access\n");
-        return 1;
-    }
-
-    struct passwd *pw = getpwuid(cred.uid);
-    if (pw && pw->pw_gid == video_grp->gr_gid) {
-        return 1;
-    }
-
-    int ngroups = 0;
-    getgrouplist(pw ? pw->pw_name : "", cred.gid, NULL, &ngroups);
-
-    gid_t *groups = malloc(ngroups * sizeof(gid_t));
-    if (!groups) return 0;
-
-    getgrouplist(pw ? pw->pw_name : "", cred.gid, groups, &ngroups);
-
-    int found = 0;
-    for (int i = 0; i < ngroups; i++) {
-        if (groups[i] == video_grp->gr_gid) {
-            found = 1;
-            break;
-        }
-    }
-
-    free(groups);
-    return found;
-    
-#elif defined(__NetBSD__)
-    /* NetBSD: check for 'wheel' group membership */
-    uid_t euid;
-    gid_t egid;
-
-    if (getpeereid(client_fd, &euid, &egid) < 0) {
-        perror("getpeereid");
-        return 0;
-    }
-
-    struct group *wheel_grp = getgrnam("wheel");
-    if (!wheel_grp) {
-        return 1;
-    }
-
-    struct passwd *pw = getpwuid(euid);
-    if (pw && pw->pw_gid == wheel_grp->gr_gid) {
-        return 1;
-    }
-
-    int ngroups = 0;
-    getgrouplist(pw ? pw->pw_name : "", egid, NULL, &ngroups);
-
-    gid_t *groups = malloc(ngroups * sizeof(gid_t));
-    if (!groups) return 0;
-
-    getgrouplist(pw ? pw->pw_name : "", egid, groups, &ngroups);
-
-    int found = 0;
-    for (int i = 0; i < ngroups; i++) {
-        if (groups[i] == wheel_grp->gr_gid) {
-            found = 1;
-            break;
-        }
-    }
-
-    free(groups);
-    return found;
-#endif
-}
-
-/* Unified ddc_get_brightness implementation for all platforms */
-int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {
-    DDC_Non_Table_Vcp_Value valrec;
-    DDC_Status rc = ddc_get_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, &valrec);
-    
-    if (rc != DDC_OK) return -1;
-    
-    *current = valrec.sh << 8 | valrec.sl;
-    *max = valrec.mh << 8 | valrec.ml;
-    return 0;
-}
-
-/* Unified ddc_set_brightness implementation for all platforms */
-int ddc_set_brightness(ddc_handle_t *handle, int value) {
-#if defined(__linux__)
-    /* Linux uses single-byte value */
-    DDC_Status rc = ddc_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS, 0, value);
-#else
-    /* macOS and NetBSD use two-byte value */
-    DDC_Status rc = ddc_set_non_table_vcp_value(handle->dh, VCP_BRIGHTNESS,
-                                                       (value >> 8) & 0xFF, value & 0xFF);
-#endif
-    return (rc == DDC_OK) ? 0 : -1;
-}
-
-/* Unified ddc_close_display implementation for all platforms */
-void ddc_close_display(ddc_handle_t *handle) {
-    if (handle) {
-        ddc_close_display2(handle->dh);
-        free(handle);
-    }
-}
