@@ -27,37 +27,42 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service_darwin.plist
 find_package(Threads REQUIRED)
 
 set(PLATFORM_LIBS)
+
+# Build a single compat library for all platforms
+add_library(ddcutil_compat STATIC
+    ddcutil_compat.c
+    ddcutil_compat.h
+)
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND PLATFORM_LIBS rt)
+    # On Linux, also link against libddcutil; wrappers delegate to it
     find_package(PkgConfig QUIET)
     if (PkgConfig_FOUND)
         pkg_check_modules(DDCUTIL ddcutil)
     endif ()
     if (DDCUTIL_FOUND)
+        target_include_directories(ddcutil_compat PRIVATE ${DDCUTIL_INCLUDE_DIRS})
+        target_compile_options(ddcutil_compat PRIVATE ${DDCUTIL_CFLAGS_OTHER})
         list(APPEND PLATFORM_LIBS ${DDCUTIL_LIBRARIES})
     else ()
         message(FATAL_ERROR "ddcutil not found. Please install libddcutil development files.")
     endif ()
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    add_library(ddcutil_macos STATIC
-        ddcutil_macos.c
-        ddcutil_compat.h
-    )
-    target_link_libraries(ddcutil_macos
+    # macOS frameworks needed by compat implementation
+    target_link_libraries(ddcutil_compat
         PUBLIC
         "-framework IOKit"
         "-framework ApplicationServices"
         "-framework CoreGraphics"
         "-framework CoreDisplay"
     )
-    list(APPEND PLATFORM_LIBS ddcutil_macos)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
-    add_library(ddcutil_netbsd STATIC
-        ddcutil_netbsd.c
-        ddcutil_compat.h
-    )
-    list(APPEND PLATFORM_LIBS ddcutil_netbsd)
+    # No extra libs required on NetBSD
 endif ()
+
+# Link the compat library on all platforms
+list(APPEND PLATFORM_LIBS ddcutil_compat)
 
 add_executable(dimmitd
     dimmitd.c
