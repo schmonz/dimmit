@@ -56,6 +56,17 @@ add_executable(dimmitd
     dimmitd.c
     ddc.c
 )
+
+# Add exactly one OS-specific implementation for the internal DDC API
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(dimmitd PRIVATE ddc_impl_linux.c)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    target_sources(dimmitd PRIVATE ddc_impl_macos.c)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "NetBSD")
+    target_sources(dimmitd PRIVATE ddc_impl_netbsd.c)
+else ()
+    message(FATAL_ERROR "Unsupported platform for DDC implementation")
+endif ()
 target_include_directories(dimmitd
     PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
