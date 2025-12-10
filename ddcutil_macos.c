@@ -23,7 +23,7 @@ typedef enum {
 } ddc_method_t;
 
 /* Display reference structure */
-struct DDCM_Display_Ref_s {
+struct DDC_Display_Ref_s {
     CGDirectDisplayID display_id;
     uint32_t vendor_id;
     uint32_t product_id;
@@ -31,7 +31,7 @@ struct DDCM_Display_Ref_s {
 };
 
 /* Display handle structure */
-struct DDCM_Display_Handle_s {
+struct DDC_Display_Handle_s {
     ddc_method_t method;
     union {
         struct {
@@ -46,7 +46,7 @@ struct DDCM_Display_Handle_s {
     int current_brightness;
 };
 
-static int ddc_write_intel(DDCM_Display_Handle h, const uint8_t *data, size_t len) {
+static int ddc_write_intel(DDC_Display_Handle h, const uint8_t *data, size_t len) {
     IOI2CRequest request;
     memset(&request, 0, sizeof(request));
     request.commFlags = 0;
@@ -58,7 +58,7 @@ static int ddc_write_intel(DDCM_Display_Handle h, const uint8_t *data, size_t le
     return (ret == kIOReturnSuccess) ? 0 : -1;
 }
 
-static int ddc_read_intel(DDCM_Display_Handle h, const uint8_t *data, size_t len) {
+static int ddc_read_intel(DDC_Display_Handle h, const uint8_t *data, size_t len) {
     IOI2CRequest request;
     memset(&request, 0, sizeof(request));
     request.commFlags = 0;
@@ -77,28 +77,28 @@ static uint8_t ddc_checksum(uint8_t chk, uint8_t *data, int start, int end) {
     return chk;
 }
 
-DDCM_Status ddcm_get_display_info_list2(int flags, DDCM_Display_Info_List **list_out) {
+DDC_Status ddc_get_display_info_list2(int flags, DDC_Display_Info_List **list_out) {
     (void)flags;
     
     CGDirectDisplayID displays[16];
     uint32_t count;
     
     if (CGGetActiveDisplayList(16, displays, &count) != kCGErrorSuccess || count == 0) {
-        return DDCM_ERROR;
+        return DDC_ERROR;
     }
     
-    DDCM_Display_Info_List *list = malloc(sizeof(DDCM_Display_Info_List));
-    if (!list) return DDCM_ERROR;
+    DDC_Display_Info_List *list = malloc(sizeof(DDC_Display_Info_List));
+    if (!list) return DDC_ERROR;
     
-    list->info = malloc(count * sizeof(DDCM_Display_Info));
+    list->info = malloc(count * sizeof(DDC_Display_Info));
     if (!list->info) {
         free(list);
-        return DDCM_ERROR;
+        return DDC_ERROR;
     }
     
     list->ct = 0;
     for (uint32_t i = 0; i < count; i++) {
-        DDCM_Display_Ref dref = malloc(sizeof(struct DDCM_Display_Ref_s));
+        DDC_Display_Ref dref = malloc(sizeof(struct DDC_Display_Ref_s));
         if (!dref) continue;
         
         dref->display_id = displays[i];
@@ -114,10 +114,10 @@ DDCM_Status ddcm_get_display_info_list2(int flags, DDCM_Display_Info_List **list
     }
     
     *list_out = list;
-    return DDCM_OK;
+    return DDC_OK;
 }
 
-void ddcm_free_display_info_list(DDCM_Display_Info_List *list) {
+void ddc_free_display_info_list(DDC_Display_Info_List *list) {
     if (list) {
         if (list->info) {
             for (int i = 0; i < list->ct; i++) {
@@ -129,13 +129,13 @@ void ddcm_free_display_info_list(DDCM_Display_Info_List *list) {
     }
 }
 
-DDCM_Status ddcm_open_display2(DDCM_Display_Ref dref, int flags, DDCM_Display_Handle *handle_out) {
+DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
     (void)flags;
     
-    if (!dref || !handle_out) return DDCM_ERROR;
+    if (!dref || !handle_out) return DDC_ERROR;
     
     /* Skip built-in displays */
-    if (dref->is_builtin) return DDCM_ERROR;
+    if (dref->is_builtin) return DDC_ERROR;
     
     /* Try Intel Mac method (IOFramebuffer) */
     CFMutableDictionaryRef matching = IOServiceMatching("IOFramebuffer");
@@ -170,7 +170,7 @@ DDCM_Status ddcm_open_display2(DDCM_Display_Ref dref, int flags, DDCM_Display_Ha
                     IOI2CConnectRef i2c;
                     if (IOI2CInterfaceOpen(i2cService, kNilOptions, &i2c) == kIOReturnSuccess) {
                         IOObjectRelease(i2cService);
-                        DDCM_Display_Handle handle = malloc(sizeof(struct DDCM_Display_Handle_s));
+                        DDC_Display_Handle handle = malloc(sizeof(struct DDC_Display_Handle_s));
                         if (handle) {
                             handle->method = DDC_METHOD_INTEL;
                             handle->data.intel.framebuffer = framebuffer;
@@ -178,7 +178,7 @@ DDCM_Status ddcm_open_display2(DDCM_Display_Ref dref, int flags, DDCM_Display_Ha
                             handle->max_brightness = 100;
                             handle->current_brightness = 50;
                             *handle_out = handle;
-                            return DDCM_OK;
+                            return DDC_OK;
                         }
                         IOI2CInterfaceClose(i2c, kNilOptions);
                     }
@@ -224,26 +224,26 @@ DDCM_Status ddcm_open_display2(DDCM_Display_Ref dref, int flags, DDCM_Display_Ha
             
             if (avservice) {
                 IOObjectRelease(root);
-                DDCM_Display_Handle handle = malloc(sizeof(struct DDCM_Display_Handle_s));
+                DDC_Display_Handle handle = malloc(sizeof(struct DDC_Display_Handle_s));
                 if (!handle) {
                     CFRelease(avservice);
-                    return DDCM_ERROR;
+                    return DDC_ERROR;
                 }
                 handle->method = DDC_METHOD_ARM64;
                 handle->data.arm64.avservice = avservice;
                 handle->max_brightness = 100;
                 handle->current_brightness = 50;
                 *handle_out = handle;
-                return DDCM_OK;
+                return DDC_OK;
             }
         }
         IOObjectRelease(root);
     }
     
-    return DDCM_ERROR;
+    return DDC_ERROR;
 }
 
-DDCM_Status ddcm_close_display(DDCM_Display_Handle handle) {
+DDC_Status ddc_close_display2(DDC_Display_Handle handle) {
     if (handle) {
         if (handle->method == DDC_METHOD_INTEL) {
             if (handle->data.intel.i2c) {
@@ -259,11 +259,11 @@ DDCM_Status ddcm_close_display(DDCM_Display_Handle handle) {
         }
         free(handle);
     }
-    return DDCM_OK;
+    return DDC_OK;
 }
 
-DDCM_Status ddcm_get_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_code, DDCM_Non_Table_Vcp_Value *value_out) {
-    if (!h || !value_out) return DDCM_ERROR;
+DDC_Status ddc_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
+    if (!h || !value_out) return DDC_ERROR;
     
     if (h->method == DDC_METHOD_INTEL) {
         /* Intel Mac - read via DDC/CI */
@@ -271,16 +271,16 @@ DDCM_Status ddcm_get_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_
         cmd[5] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3];
         
         if (ddc_write_intel(h, cmd, sizeof(cmd)) != 0)
-            return DDCM_ERROR;
+            return DDC_ERROR;
         
         usleep(40000);
         
         uint8_t reply[12];
         if (ddc_read_intel(h, reply, sizeof(reply)) != 0)
-            return DDCM_ERROR;
+            return DDC_ERROR;
         
         if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != feature_code)
-            return DDCM_ERROR;
+            return DDC_ERROR;
         
         value_out->mh = reply[6];
         value_out->ml = reply[7];
@@ -289,7 +289,7 @@ DDCM_Status ddcm_get_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_
         
         h->max_brightness = (reply[6] << 8) | reply[7];
         h->current_brightness = (reply[8] << 8) | reply[9];
-        return DDCM_OK;
+        return DDC_OK;
     } else {
         /* Apple Silicon - read via IOAVService */
         uint8_t cmd[1] = {feature_code};
@@ -304,7 +304,7 @@ DDCM_Status ddcm_get_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_
         int ret = IOAVServiceWriteI2C(h->data.arm64.avservice, ARM64_DDC_7BIT_ADDRESS, 
                                       ARM64_DDC_DATA_ADDRESS, packet, sizeof(packet));
         if (ret != 0)
-            return DDCM_ERROR;
+            return DDC_ERROR;
         
         usleep(40000);
         
@@ -312,10 +312,10 @@ DDCM_Status ddcm_get_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_
         ret = IOAVServiceReadI2C(h->data.arm64.avservice, ARM64_DDC_7BIT_ADDRESS, 
                                  ARM64_DDC_DATA_ADDRESS, reply, sizeof(reply));
         if (ret != 0)
-            return DDCM_ERROR;
+            return DDC_ERROR;
         
         if (reply[0] != DDC_ADDR || reply[2] != 0x02 || reply[4] != feature_code)
-            return DDCM_ERROR;
+            return DDC_ERROR;
         
         value_out->mh = reply[6];
         value_out->ml = reply[7];
@@ -324,16 +324,16 @@ DDCM_Status ddcm_get_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_
         
         h->max_brightness = (reply[6] << 8) | reply[7];
         h->current_brightness = (reply[8] << 8) | reply[9];
-        return DDCM_OK;
+        return DDC_OK;
     }
 }
 
-DDCM_Status ddcm_set_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
-    if (!h) return DDCM_ERROR;
+DDC_Status ddc_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
+    if (!h) return DDC_ERROR;
     
     int value = (hi_byte << 8) | lo_byte;
     if (value < 0 || value > 100)
-        return DDCM_ERROR;
+        return DDC_ERROR;
     
     if (h->method == DDC_METHOD_INTEL) {
         /* Intel Mac - write via DDC/CI */
@@ -344,7 +344,7 @@ DDCM_Status ddcm_set_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_
         if (ret == 0) {
             h->current_brightness = value;
         }
-        return (ret == 0) ? DDCM_OK : DDCM_ERROR;
+        return (ret == 0) ? DDC_OK : DDC_ERROR;
     } else {
         /* Apple Silicon - write via IOAVService */
         uint8_t send[3] = {feature_code, hi_byte, lo_byte};
@@ -363,8 +363,8 @@ DDCM_Status ddcm_set_non_table_vcp_value(DDCM_Display_Handle h, uint8_t feature_
         
         if (ret == 0) {
             h->current_brightness = value;
-            return DDCM_OK;
+            return DDC_OK;
         }
-        return DDCM_ERROR;
+        return DDC_ERROR;
     }
 }

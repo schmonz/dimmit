@@ -6,40 +6,24 @@
 #include "ddc_constants.h"
 #include <stdlib.h>
 
-/* Platform-specific includes and API mappings */
+/* Unified compat API */
+#include "ddcutil_compat.h"
+
+/* Platform-specific includes used only for authorization checks */
 #if defined(__linux__)
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <pwd.h>
 #include <grp.h>
 #include <stdio.h>
-#include <ddcutil_c_api.h>
-
-#define DDC_PREFIX ddca
-#define DDC_STATUS DDCA_Status
-#define DDC_OK 0
-#define DDC_Display_Handle DDCA_Display_Handle
-#define DDC_Display_Info_List DDCA_Display_Info_List
-#define DDC_Display_Ref DDCA_Display_Ref
-#define DDC_Non_Table_Vcp_Value DDCA_Non_Table_Vcp_Value
-
-#elif defined(__APPLE__)
-#include "ddcutil_compat.h"
-
-#define DDC_PREFIX ddc
-#define DDC_STATUS DDC_Status
-
 #elif defined(__NetBSD__)
 #include <pwd.h>
 #include <grp.h>
-#include "ddcutil_compat.h"
+#endif
 
+/* All platforms call the compat API with "ddc_" prefix */
 #define DDC_PREFIX ddc
 #define DDC_STATUS DDC_Status
-
-#else
-#error "Platform not yet supported"
-#endif
 
 /* Token pasting macros to create platform-specific function names */
 #define DDC_CONCAT_IMPL(prefix, name) prefix##_##name
@@ -214,7 +198,7 @@ int ddc_set_brightness(ddc_handle_t *handle, int value) {
 /* Unified ddc_close_display implementation for all platforms */
 void ddc_close_display(ddc_handle_t *handle) {
     if (handle) {
-        DDC_FUNC(close_display)(handle->dh);
+        DDC_FUNC(close_display2)(handle->dh);
         free(handle);
     }
 }

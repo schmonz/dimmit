@@ -3,6 +3,31 @@
 
 #include <stdint.h>
 
+#if defined(__linux__)
+#include <ddcutil_c_api.h>
+/* On Linux, map to libddcutil's C API directly */
+typedef DDCA_Status DDC_Status;
+typedef DDCA_Display_Handle DDC_Display_Handle;
+typedef DDCA_Display_Ref DDC_Display_Ref;
+typedef DDCA_Display_Info_List DDC_Display_Info_List;
+typedef DDCA_Non_Table_Vcp_Value DDC_Non_Table_Vcp_Value;
+
+#ifndef DDC_OK
+#define DDC_OK 0
+#endif
+#ifndef DDC_ERROR
+#define DDC_ERROR -1
+#endif
+
+#define ddc_get_display_info_list2    ddca_get_display_info_list2
+#define ddc_free_display_info_list    ddca_free_display_info_list
+#define ddc_open_display2             ddca_open_display2
+#define ddc_close_display2            ddca_close_display2
+#define ddc_get_non_table_vcp_value   ddca_get_non_table_vcp_value
+#define ddc_set_non_table_vcp_value   ddca_set_non_table_vcp_value
+
+#else /* non-Linux: provide a uniform interface implemented per-OS */
+
 /* Status codes matching libddcutil convention */
 typedef int DDC_Status;
 #define DDC_OK 0
@@ -46,12 +71,14 @@ void ddc_free_display_info_list(DDC_Display_Info_List *list);
 DDC_Status ddc_open_display2(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out);
 
 /* Close display handle */
-DDC_Status ddc_close_display(DDC_Display_Handle handle);
+DDC_Status ddc_close_display2(DDC_Display_Handle handle);
 
 /* Get VCP feature value (non-table) */
 DDC_Status ddc_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out);
 
 /* Set VCP feature value (non-table) */
 DDC_Status ddc_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte);
+
+#endif /* __linux__ */
 
 #endif /* DDCUTIL_COMPAT_H */
