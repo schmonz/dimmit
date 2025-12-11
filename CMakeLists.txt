@@ -79,6 +79,13 @@ set(DDC_IMPL_SRC "ddc_impl_${SYSTEM_LOWER}.c")
 
 if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPL_SRC}")
     target_sources(dimmitd PRIVATE "${DDC_IMPL_SRC}")
+    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        target_sources(dimmitd PRIVATE
+            ddc_impl_darwin_arch.h
+            ddc_impl_darwin_arm.c
+            ddc_impl_darwin_x86.c
+        )
+    endif ()
 else ()
     message(FATAL_ERROR "Unsupported platform for DDC implementation: ${CMAKE_SYSTEM_NAME} (Expected ${DDC_IMPL_SRC} to exist)")
 endif ()
