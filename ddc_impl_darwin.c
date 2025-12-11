@@ -121,11 +121,39 @@ static int ddc_read_intel(DDC_Display_Handle h, const uint8_t *data, size_t len)
     return (ret == kIOReturnSuccess) ? 0 : -1;
 }
 
+#elif defined(__arm64__)
+
+/* Private IOAVService APIs for Apple Silicon */
+typedef struct __IOAVService *IOAVServiceRef;
+extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef allocator, io_service_t service);
+extern int IOAVServiceReadI2C(IOAVServiceRef service, uint32_t chipAddress, uint32_t offset, void *buffer, uint32_t length);
+extern int IOAVServiceWriteI2C(IOAVServiceRef service, uint32_t chipAddress, uint32_t dataAddress, void *buffer, uint32_t length);
+
+#define ARM64_DDC_7BIT_ADDRESS 0x37
+#define ARM64_DDC_DATA_ADDRESS 0x51
+
+struct DDC_Display_Handle_s {
+    union {
+        struct {
+            IOAVServiceRef avservice;
+        } arm64;
+    } data;
+    int max_brightness;
+    int current_brightness;
+};
+
+#else
+
+#error Unsupported macOS architecture for dimmit
+
+#endif
+
 DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
     (void)flags;
     if (!dref || !handle_out) return DDC_ERROR;
     if (dref->is_builtin) return DDC_ERROR;
 
+#if defined(__x86_64__)
     CFMutableDictionaryRef matching = IOServiceMatching("IOFramebuffer");
     if (matching) {
         CFNumberRef vendorID = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &dref->vendor_id);
@@ -176,92 +204,7 @@ DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Ha
         }
     }
     return DDC_ERROR;
-}
-
-DDC_Status ddc_impl_close_display(DDC_Display_Handle handle) {
-    if (handle) {
-        if (handle->data.intel.i2c) {
-            IOI2CInterfaceClose(handle->data.intel.i2c, kNilOptions);
-        }
-        if (handle->data.intel.framebuffer) {
-            IOObjectRelease(handle->data.intel.framebuffer);
-        }
-        free(handle);
-    }
-    return DDC_OK;
-}
-
-DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
-    if (!h || !value_out) return DDC_ERROR;
-
-    uint8_t cmd[] = {0x51, 0x82, 0x01, feature_code, 0x00, 0x00};
-    cmd[5] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3];
-
-    if (ddc_write_intel(h, cmd, sizeof(cmd)) != 0)
-        return DDC_ERROR;
-
-    usleep(40000);
-
-    uint8_t reply[12];
-    if (ddc_read_intel(h, reply, sizeof(reply)) != 0)
-        return DDC_ERROR;
-
-    if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != feature_code)
-        return DDC_ERROR;
-
-    value_out->mh = reply[6];
-    value_out->ml = reply[7];
-    value_out->sh = reply[8];
-    value_out->sl = reply[9];
-
-    h->max_brightness = (reply[6] << 8) | reply[7];
-    h->current_brightness = (reply[8] << 8) | reply[9];
-    return DDC_OK;
-}
-
-DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
-    if (!h) return DDC_ERROR;
-
-    int value = (hi_byte << 8) | lo_byte;
-    if (value < 0 || value > 100)
-        return DDC_ERROR;
-
-    uint8_t cmd[] = {0x51, 0x84, 0x03, feature_code, hi_byte, lo_byte, 0x00};
-    cmd[6] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3] ^ cmd[4] ^ cmd[5];
-
-    int ret = ddc_write_intel(h, cmd, sizeof(cmd));
-    if (ret == 0) {
-        h->current_brightness = value;
-    }
-    return (ret == 0) ? DDC_OK : DDC_ERROR;
-}
-
 #elif defined(__arm64__)
-
-/* Private IOAVService APIs for Apple Silicon */
-typedef struct __IOAVService *IOAVServiceRef;
-extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef allocator, io_service_t service);
-extern int IOAVServiceReadI2C(IOAVServiceRef service, uint32_t chipAddress, uint32_t offset, void *buffer, uint32_t length);
-extern int IOAVServiceWriteI2C(IOAVServiceRef service, uint32_t chipAddress, uint32_t dataAddress, void *buffer, uint32_t length);
-
-#define ARM64_DDC_7BIT_ADDRESS 0x37
-#define ARM64_DDC_DATA_ADDRESS 0x51
-
-struct DDC_Display_Handle_s {
-    union {
-        struct {
-            IOAVServiceRef avservice;
-        } arm64;
-    } data;
-    int max_brightness;
-    int current_brightness;
-};
-
-DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
-    (void)flags;
-    if (!dref || !handle_out) return DDC_ERROR;
-    if (dref->is_builtin) return DDC_ERROR;
-
     /* Apple Silicon method (IOAVService via IORegistry) */
     io_registry_entry_t root = IORegistryGetRootEntry(kIOMainPortDefault);
     if (root) {
@@ -312,21 +255,56 @@ DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Ha
         IOObjectRelease(root);
     }
     return DDC_ERROR;
+#endif
 }
 
 DDC_Status ddc_impl_close_display(DDC_Display_Handle handle) {
-    if (handle) {
-        if (handle->data.arm64.avservice) {
-            CFRelease(handle->data.arm64.avservice);
-        }
-        free(handle);
+    if (!handle) return DDC_OK;
+#if defined(__x86_64__)
+    if (handle->data.intel.i2c) {
+        IOI2CInterfaceClose(handle->data.intel.i2c, kNilOptions);
     }
+    if (handle->data.intel.framebuffer) {
+        IOObjectRelease(handle->data.intel.framebuffer);
+    }
+    free(handle);
     return DDC_OK;
+#elif defined(__arm64__)
+    if (handle->data.arm64.avservice) {
+        CFRelease(handle->data.arm64.avservice);
+    }
+    free(handle);
+    return DDC_OK;
+#endif
 }
 
 DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
     if (!h || !value_out) return DDC_ERROR;
+#if defined(__x86_64__)
+    uint8_t cmd[] = {0x51, 0x82, 0x01, feature_code, 0x00, 0x00};
+    cmd[5] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3];
 
+    if (ddc_write_intel(h, cmd, sizeof(cmd)) != 0)
+        return DDC_ERROR;
+
+    usleep(40000);
+
+    uint8_t reply[12];
+    if (ddc_read_intel(h, reply, sizeof(reply)) != 0)
+        return DDC_ERROR;
+
+    if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != feature_code)
+        return DDC_ERROR;
+
+    value_out->mh = reply[6];
+    value_out->ml = reply[7];
+    value_out->sh = reply[8];
+    value_out->sl = reply[9];
+
+    h->max_brightness = (reply[6] << 8) | reply[7];
+    h->current_brightness = (reply[8] << 8) | reply[9];
+    return DDC_OK;
+#elif defined(__arm64__)
     uint8_t cmd[1] = {feature_code};
 
     uint8_t packet[8];
@@ -360,6 +338,7 @@ DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t featur
     h->max_brightness = (reply[6] << 8) | reply[7];
     h->current_brightness = (reply[8] << 8) | reply[9];
     return DDC_OK;
+#endif
 }
 
 DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
@@ -369,6 +348,16 @@ DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t featur
     if (value < 0 || value > 100)
         return DDC_ERROR;
 
+#if defined(__x86_64__)
+    uint8_t cmd[] = {0x51, 0x84, 0x03, feature_code, hi_byte, lo_byte, 0x00};
+    cmd[6] = 0x6E ^ cmd[0] ^ cmd[1] ^ cmd[2] ^ cmd[3] ^ cmd[4] ^ cmd[5];
+
+    int ret = ddc_write_intel(h, cmd, sizeof(cmd));
+    if (ret == 0) {
+        h->current_brightness = value;
+    }
+    return (ret == 0) ? DDC_OK : DDC_ERROR;
+#elif defined(__arm64__)
     uint8_t send[3] = {feature_code, hi_byte, lo_byte};
 
     uint8_t packet[8];
@@ -388,13 +377,8 @@ DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t featur
         return DDC_OK;
     }
     return DDC_ERROR;
-}
-
-#else
-
-#error Unsupported macOS architecture for dimmit
-
 #endif
+}
 
 int ddc_impl_is_authorized(int client_fd) {
     (void)client_fd;
