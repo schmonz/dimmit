@@ -2,7 +2,24 @@ cmake_minimum_required(VERSION 3.15)
 
 # Minimum macOS 12 required for kIOMainPortDefault API
 if (APPLE)
+    # Default macOS deployment target
     set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
+
+    # Build Universal binaries (arm64 + x86_64) by default on macOS.
+    # Do not override if the user/toolchain has already specified architectures
+    # in the CMake cache or via the command line/toolchain file.
+    if (NOT CMAKE_OSX_ARCHITECTURES)
+        set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Target architectures for macOS (default: Universal)")
+    else()
+        # If a previous single-arch value lingers in the cache (e.g., from prior manual builds),
+        # upgrade it to Universal by default unless the user opts out.
+        set(DIMMIT_RESPECT_EXISTING_ARCH OFF CACHE BOOL "Keep existing CMAKE_OSX_ARCHITECTURES cache value if set")
+        if (NOT DIMMIT_RESPECT_EXISTING_ARCH)
+            if (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+                set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Target architectures for macOS (default: Universal)" FORCE)
+            endif()
+        endif()
+    endif ()
 endif ()
 
 project(dimmit LANGUAGES C)
