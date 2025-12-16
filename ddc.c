@@ -5,7 +5,7 @@
 struct ddc_handle { DDC_Display_Handle dh; };
 
 ddc_handle_t* ddc_open_display(void) {
-    DDC_Display_Info_List *dlist;
+    DDC_Display_Info_List *dlist = NULL;
     if (ddc_impl_get_display_info_list(0, &dlist) != DDC_OK || !dlist || dlist->ct == 0) {
         if (dlist) ddc_impl_free_display_info_list(dlist);
         return NULL;
@@ -19,8 +19,19 @@ ddc_handle_t* ddc_open_display(void) {
     if (!dref) dref = dlist->info[0].dref;
 
     ddc_handle_t *h = malloc(sizeof(*h));
-    if (!h) { ddc_impl_free_display_info_list(dlist); return NULL; }
-    if (ddc_impl_open_display(dref, 0, &h->dh) != DDC_OK) { ddc_impl_free_display_info_list(dlist); free(h); return NULL; }
+    if (!h) {
+        ddc_impl_free_display_info_list(dlist);
+        return NULL;
+    }
+
+    DDC_Display_Handle dh;
+    if (ddc_impl_open_display(dref, 0, &dh) != DDC_OK) {
+        ddc_impl_free_display_info_list(dlist);
+        free(h);
+        return NULL;
+    }
+
+    h->dh = dh;
     ddc_impl_free_display_info_list(dlist);
     return h;
 }
