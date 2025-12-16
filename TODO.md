@@ -2,6 +2,7 @@
 
 ## Platform: macOS
 
+- [ ] Build Universal
 - [ ] Stop needing `root`
 - [ ] Publish `.pkg`
   - [ ] Make it uninstallable

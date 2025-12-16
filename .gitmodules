@@ -1,0 +1,6 @@
+[submodule "vendor/m1ddc"]
+	path = vendor/m1ddc
+	url = https://github.com/waydabber/m1ddc
+[submodule "vendor/ddcctl"]
+	path = vendor/ddcctl
+	url = https://github.com/kfix/ddcctl
