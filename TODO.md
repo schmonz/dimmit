@@ -9,15 +9,11 @@
 - [ ] Be able to self-update somehow (no GUI, so not Sparkle)
 - [ ] Stop needing [Karabiner-Elements](https://karabiner-elements.pqrs.org);
       somehow intercept brightness events directly
-- [ ] Stop needing bespoke code; somehow vendor
-      [m1ddc](https://github.com/waydabber/m1ddc)
-      and
-      [ddcctl](https://github.com/kfix/ddcctl)
-      and make static libraries from each
 
 ## Platform: Linux
 
 - [ ] Stop needing `root`
+- [ ] Vendor [libddcutil.a](https://github.com/rockowitz/ddcutil) for consistency?
 - [ ] Publish easy-update system packages through OpenBuildService
 
 ## Platform: NetBSD
