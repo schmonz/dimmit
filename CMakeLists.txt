@@ -1,11 +1,17 @@
 cmake_minimum_required(VERSION 3.15)
 
+if(APPLE)
+    project(MyProject LANGUAGES C OBJC)
+else()
+    project(MyProject LANGUAGES C)
+endif()
+
 # Detect if we're doing a macOS universal build
 # Check both undefined and empty list (CLion sometimes sets empty)
 list(LENGTH CMAKE_OSX_ARCHITECTURES NUM_ARCHS)
 if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     # Top-level universal build for macOS
-    project(dimmit-universal LANGUAGES C)
+    project(dimmit-universal LANGUAGES C OBJC)
     include(ExternalProject)
     include(GNUInstallDirs)
     
@@ -56,14 +62,6 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
             ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-down
     )
     
-    # Show lipo info
-    add_custom_command(TARGET dimmit-universal POST_BUILD
-        COMMAND lipo -info ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
-        COMMAND lipo -info ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-up
-        COMMAND lipo -info ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-down
-        COMMENT "Universal binary info:"
-    )
-    
     # Install universal binaries
     install(PROGRAMS
         ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
@@ -76,13 +74,16 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     )
     
     return()
+elseif(APPLE)
+    project(dimmit LANGUAGES C OBJC)
 endif()
 
 # ============================================================================
 # Normal build (single-arch on all platforms, or arch-specific Darwin build)
 # ============================================================================
 
-project(dimmit LANGUAGES C OBJC)
+# XXX avoid OBJC on non-Apple platforms
+project(dimmit LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
