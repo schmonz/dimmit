@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.15)
 list(LENGTH CMAKE_OSX_ARCHITECTURES NUM_ARCHS)
 if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     # Top-level universal build for macOS
-    project(dimmit-universal NONE)
+    project(dimmit-universal LANGUAGES C)
     include(ExternalProject)
     include(GNUInstallDirs)
     
@@ -219,6 +219,11 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPL_SRC}")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_m1ddc.m)
         elseif (BUILD_ARCH STREQUAL "x86_64")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_ddcctl.c)
+            set_source_files_properties(
+                ddc_impl_darwin_ddcctl.c
+                PROPERTIES
+                    COMPILE_OPTIONS "-Wno-deprecated-declarations"
+            )
         endif()
         
         target_link_libraries(dimmitd PRIVATE ${DDC_VENDOR_LIB})
