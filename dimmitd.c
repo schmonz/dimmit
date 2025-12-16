@@ -191,9 +191,9 @@ int main(void) {
         goto cleanup;
     }
     
-    struct group *video_grp = getgrnam("video");
-    if (video_grp) {
-        if (chown(sock_path, 0, video_grp->gr_gid) < 0) {
+    struct group *i2c_grp = getgrnam("i2c");
+    if (i2c_grp) {
+        if (chown(sock_path, 0, i2c_grp->gr_gid) < 0) {
             perror("chown");
         }
     }

@@ -110,14 +110,14 @@ DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t f
 int ddc_impl_is_authorized(int client_fd) {
     struct ucred cred; socklen_t len = sizeof(cred);
     if (getsockopt(client_fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) < 0) return 0;
-    struct group *video_grp = getgrnam("video");
-    if (!video_grp) return 1;
+    struct group *i2c_grp = getgrnam("i2c");
+    if (!i2c_grp) return 1;
     struct passwd *pw = getpwuid(cred.uid);
-    if (pw && pw->pw_gid == video_grp->gr_gid) return 1;
+    if (pw && pw->pw_gid == i2c_grp->gr_gid) return 1;
     int ngroups = 0; getgrouplist(pw ? pw->pw_name : "", cred.gid, NULL, &ngroups);
     gid_t *groups = (gid_t*)malloc((size_t)ngroups * sizeof(gid_t)); if (!groups) return 0;
     getgrouplist(pw ? pw->pw_name : "", cred.gid, groups, &ngroups);
-    int ok = 0; for (int i = 0; i < ngroups; i++) if (groups[i] == video_grp->gr_gid) { ok = 1; break; }
+    int ok = 0; for (int i = 0; i < ngroups; i++) if (groups[i] == i2c_grp->gr_gid) { ok = 1; break; }
     free(groups);
     return ok;
 }

@@ -21,8 +21,8 @@ Run-time dependencies:
 
 On Linux:
 ```sh
-sudo usermod -a -G video $(whoami)
-newgrp video
+sudo usermod -a -G i2c $(whoami)
+newgrp i2c
 cd build
 sudo ./dimmitd >/dev/null &
 ./dimmit-down
