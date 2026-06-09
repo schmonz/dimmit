@@ -25,6 +25,55 @@
 
 - [ ] Test
 
+## Testability
+
+What would have made the current tests easier to write, and how to get there:
+
+- [ ] Split the brightness/debounce state machine out of `dimmitd.c` into a
+      standalone module (no sockets, threads, or stdio) that the daemon and the
+      tests both link normally — so tests no longer have to `#include
+      "dimmitd.c"` under a `DIMMIT_TESTING` guard just to reach static helpers.
+- [ ] Inject the clock into the debounce logic (pass `now` in, or take a clock
+      function pointer) so timing/debounce is tested deterministically, without
+      real sleeps and without spinning up the worker thread.
+- [ ] Exercise the accept/command loop end to end against a fake socket plus the
+      in-memory `ddc_impl_test.c` display, not just the extracted helpers — the
+      `ddc_impl.h` seam already makes the backend swappable; extend that to the
+      socket I/O so a request can be driven through to a simulated brightness
+      change in a test.
+
+## Build & release automation
+
+Goal: one command (locally) and one workflow (CI) produce binaries for every
+target: macOS x86_64 (10.9 Mavericks), macOS arm64, Linux, NetBSD.
+
+Known constraints to design around:
+- A Mavericks Intel host can build the 10.9 x86_64 slice but has no SDK to
+  target arm64.
+- A modern Apple Silicon host (Tahoe) builds arm64/universal but can't readily
+  target a 10.9 deployment. So no single macOS host produces every slice — the
+  10.9 x86_64 artifact likely has to come from the Mavericks machine itself.
+- GitHub Actions offers no Mavericks-era macOS runner and no native NetBSD
+  runner.
+
+- [ ] Decide and document the (host → target) matrix: which host produces which
+      artifact, and how the macOS x86_64-on-10.9 vs arm64 split is resolved.
+- [ ] Make `cmake -B build && cmake --build build` produce the correct native
+      target with no manual flags on each of: Mavericks Intel, Apple Silicon,
+      Linux, NetBSD.
+- [ ] Re-enable the arm64 ExternalProject in `CMakeLists.txt` and emit a real
+      fat macOS binary where the host SDK allows (Apple Silicon), falling back
+      to thin x86_64 on Mavericks.
+- [ ] Local "build everything" target/script that fans out to the available
+      hosts (e.g. over SSH to a NetBSD box and a Linux box, plus the local Mac)
+      and collects the artifacts in one place.
+- [ ] GitHub Actions release workflow: ubuntu runner for Linux; a macOS runner
+      for arm64; NetBSD via a VM action (e.g. `vmactions/netbsd-vm`); the 10.9
+      x86_64 build via a self-hosted runner on the Mavericks Intel Mac (no
+      hosted runner exists for it).
+- [ ] Collect the per-target artifacts into a single release (ties into the
+      `.pkg` and system-package items above).
+
 ## Moar goodies
 
 - [ ] Handle multiple external displays
