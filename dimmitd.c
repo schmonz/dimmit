@@ -36,11 +36,11 @@ static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 static int pending_delta = 0;
 static struct timeval last_cmd;
 
-void sighandler(int sig) {
+static void sighandler(int sig) {
     running = 0;
 }
 
-int init_monitor(void) {
+static int init_monitor(void) {
     ddc = ddc_open_display();
     if (!ddc) {
         fprintf(stderr, "Failed to open display\n");
@@ -62,7 +62,7 @@ int init_monitor(void) {
 /* Perform the (slow) DDC write with the lock released. Returns 0 on success.
  * The caller updates current_brightness under the lock so that global is never
  * written outside the mutex. */
-int do_set_brightness(int value) {
+static int do_set_brightness(int value) {
     if (ddc_set_brightness(ddc, value) == 0) {
         printf("Brightness: %d\n", value);
         return 0;
@@ -71,7 +71,7 @@ int do_set_brightness(int value) {
     return -1;
 }
 
-void* brightness_worker(void* arg) {
+static void* brightness_worker(void* arg) {
     struct timespec ts;
     
     while (running) {
@@ -115,7 +115,7 @@ void* brightness_worker(void* arg) {
     return NULL;
 }
 
-void adjust_brightness(int delta) {
+static void adjust_brightness(int delta) {
     pthread_mutex_lock(&lock);
     
     gettimeofday(&last_cmd, NULL);
