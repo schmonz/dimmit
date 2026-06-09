@@ -115,19 +115,18 @@ void adjust_brightness(int delta) {
     pthread_mutex_lock(&lock);
     
     gettimeofday(&last_cmd, NULL);
-    
-    int new_pending = pending_delta + delta;
-    int projected = current_brightness + new_pending;
-    
-    if ((projected < 0 && delta < 0) ||
-        (projected > max_brightness && delta > 0)) {
-        pthread_mutex_unlock(&lock);
-        return;
-    }
-    
-    pending_delta = new_pending;
+
+    /* Clamp the pending target into [0, max] so a step that would overshoot a
+     * boundary still moves to the boundary (e.g. 3 - 5 -> 0, 98 + 5 -> 100)
+     * rather than being rejected, and so holding a key can't accumulate a
+     * runaway delta past the limits. */
+    int projected = current_brightness + pending_delta + delta;
+    if (projected < 0) projected = 0;
+    if (projected > max_brightness) projected = max_brightness;
+    pending_delta = projected - current_brightness;
+
     pthread_cond_signal(&cond);
-    
+
     pthread_mutex_unlock(&lock);
 }
 
