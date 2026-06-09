@@ -37,6 +37,30 @@ static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 static int pending_delta = 0;
 static struct timeval last_cmd;
 
+/* Clamp a brightness value into [0, max]. */
+static int clamp_brightness(int value, int max) {
+    if (value < 0) return 0;
+    if (value > max) return max;
+    return value;
+}
+
+/* Whole milliseconds elapsed from a to b. */
+static long elapsed_ms(struct timeval a, struct timeval b) {
+    return (b.tv_sec - a.tv_sec) * 1000 + (b.tv_usec - a.tv_usec) / 1000;
+}
+
+/* Has the debounce window passed since the last command at `last`? */
+static int debounce_ready(struct timeval last, struct timeval now) {
+    return elapsed_ms(last, now) >= DEBOUNCE_MS;
+}
+
+/* Map a textual command to a brightness delta; 0 means unrecognized. */
+static int parse_command(const char *cmd) {
+    if (strcmp(cmd, "up") == 0) return STEP;
+    if (strcmp(cmd, "down") == 0) return -STEP;
+    return 0;
+}
+
 static void sighandler(int sig) {
     running = 0;
 }
@@ -90,15 +114,10 @@ static void* brightness_worker(void* arg) {
         if (pending_delta != 0) {
             struct timeval now;
             gettimeofday(&now, NULL);
-            long elapsed = (now.tv_sec - last_cmd.tv_sec) * 1000 +
-                          (now.tv_usec - last_cmd.tv_usec) / 1000;
-            
-            if (elapsed >= DEBOUNCE_MS) {
-                int new_val = current_brightness + pending_delta;
-                
-                if (new_val < 0) new_val = 0;
-                if (new_val > max_brightness) new_val = max_brightness;
-                
+
+            if (debounce_ready(last_cmd, now)) {
+                int new_val = clamp_brightness(current_brightness + pending_delta, max_brightness);
+
                 if (new_val != current_brightness) {
                     pthread_mutex_unlock(&lock);
                     int ok = do_set_brightness(new_val);
@@ -125,9 +144,7 @@ static void adjust_brightness(int delta) {
      * boundary still moves to the boundary (e.g. 3 - 5 -> 0, 98 + 5 -> 100)
      * rather than being rejected, and so holding a key can't accumulate a
      * runaway delta past the limits. */
-    int projected = current_brightness + pending_delta + delta;
-    if (projected < 0) projected = 0;
-    if (projected > max_brightness) projected = max_brightness;
+    int projected = clamp_brightness(current_brightness + pending_delta + delta, max_brightness);
     pending_delta = projected - current_brightness;
 
     pthread_cond_signal(&cond);
@@ -135,6 +152,7 @@ static void adjust_brightness(int delta) {
     pthread_mutex_unlock(&lock);
 }
 
+#ifndef DIMMIT_TESTING
 int main(void) {
     int sock = -1, client;
     struct sockaddr_un addr;
@@ -246,10 +264,9 @@ int main(void) {
             buf[n] = '\0';
             if (buf[n-1] == '\n') buf[n-1] = '\0';
             
-            if (strcmp(buf, "up") == 0) {
-                adjust_brightness(STEP);
-            } else if (strcmp(buf, "down") == 0) {
-                adjust_brightness(-STEP);
+            int delta = parse_command(buf);
+            if (delta != 0) {
+                adjust_brightness(delta);
             } else {
                 fprintf(stderr, "Unknown command: %s\n", buf);
             }
@@ -274,3 +291,4 @@ cleanup:
 
     return 0;
 }
+#endif /* DIMMIT_TESTING */
