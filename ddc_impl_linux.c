@@ -114,9 +114,17 @@ int ddc_impl_is_authorized(int client_fd) {
     if (!i2c_grp) return 1;
     struct passwd *pw = getpwuid(cred.uid);
     if (pw && pw->pw_gid == i2c_grp->gr_gid) return 1;
-    int ngroups = 0; getgrouplist(pw ? pw->pw_name : "", cred.gid, NULL, &ngroups);
+    /* Start with a reasonable group count and grow once if it overflows.
+     * Passing NULL to probe the count is a glibc extension, not POSIX. */
+    const char *uname = pw ? pw->pw_name : "";
+    int ngroups = 32;
     gid_t *groups = (gid_t*)malloc((size_t)ngroups * sizeof(gid_t)); if (!groups) return 0;
-    getgrouplist(pw ? pw->pw_name : "", cred.gid, groups, &ngroups);
+    if (getgrouplist(uname, cred.gid, groups, &ngroups) < 0) {
+        gid_t *resized = (gid_t*)realloc(groups, (size_t)ngroups * sizeof(gid_t));
+        if (!resized) { free(groups); return 0; }
+        groups = resized;
+        if (getgrouplist(uname, cred.gid, groups, &ngroups) < 0) { free(groups); return 0; }
+    }
     int ok = 0; for (int i = 0; i < ngroups; i++) if (groups[i] == i2c_grp->gr_gid) { ok = 1; break; }
     free(groups);
     return ok;

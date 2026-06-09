@@ -137,9 +137,17 @@ int ddc_impl_is_authorized(int client_fd) {
     uid_t euid; gid_t egid; if (getpeereid(client_fd, &euid, &egid) < 0) return 0;
     struct group *wheel = getgrnam("wheel"); if (!wheel) return 1;
     struct passwd *pw = getpwuid(euid); if (pw && pw->pw_gid == wheel->gr_gid) return 1;
-    int ng = 0; getgrouplist(pw ? pw->pw_name : "", egid, NULL, &ng);
+    /* Start with a reasonable group count and grow once if it overflows;
+     * probing with a NULL groups array is not portable. */
+    const char *uname = pw ? pw->pw_name : "";
+    int ng = 32;
     gid_t *gs = (gid_t*)malloc((size_t)ng * sizeof(gid_t)); if (!gs) return 0;
-    getgrouplist(pw ? pw->pw_name : "", egid, gs, &ng);
+    if (getgrouplist(uname, egid, gs, &ng) < 0) {
+        gid_t *resized = (gid_t*)realloc(gs, (size_t)ng * sizeof(gid_t));
+        if (!resized) { free(gs); return 0; }
+        gs = resized;
+        if (getgrouplist(uname, egid, gs, &ng) < 0) { free(gs); return 0; }
+    }
     int ok = 0; for (int i = 0; i < ng; i++) if (gs[i] == wheel->gr_gid) { ok = 1; break; }
     free(gs);
     return ok;
