@@ -15,17 +15,18 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     include(ExternalProject)
     include(GNUInstallDirs)
     
+# XXX just x86_64 when on Mavs
     # Build arm64
-    ExternalProject_Add(dimmit-arm64
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
-        BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/build-arm64
-        CMAKE_ARGS
-            -DCMAKE_OSX_ARCHITECTURES=arm64
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        BUILD_ALWAYS 1
-        INSTALL_COMMAND ""
-    )
+    #    ExternalProject_Add(dimmit-arm64
+    #        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+    #        BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/build-arm64
+    #        CMAKE_ARGS
+    #            -DCMAKE_OSX_ARCHITECTURES=arm64
+    #            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+    #            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    #        BUILD_ALWAYS 1
+    #        INSTALL_COMMAND ""
+    #    )
     
     # Build x86_64
     ExternalProject_Add(dimmit-x86_64
@@ -33,29 +34,28 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
         BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64
         CMAKE_ARGS
             -DCMAKE_OSX_ARCHITECTURES=x86_64
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
         BUILD_ALWAYS 1
         INSTALL_COMMAND ""
     )
     
-    # Create universal binaries
+    # Stage the binaries. On Mavericks this is x86_64-only (arm64 is disabled
+    # above), so `lipo -create` with a single input just produces a thin Mach-O;
+    # re-enabling the arm64 ExternalProject restores a real fat binary.
     add_custom_target(dimmit-universal ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/universal
         COMMAND lipo -create
-            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmitd
             ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmitd
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
         COMMAND lipo -create
-            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-up
             ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-up
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-up
         COMMAND lipo -create
-            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-down
             ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-down
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-down
-        DEPENDS dimmit-arm64 dimmit-x86_64
-        COMMENT "Creating universal binaries..."
+        DEPENDS dimmit-x86_64
+        COMMENT "Staging x86_64 binaries..."
         BYPRODUCTS
             ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
             ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-up
@@ -94,10 +94,6 @@ include(GNUInstallDirs)
 # ============================================================================
 # Platform Configuration
 # ============================================================================
-
-if (APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
-endif()
 
 find_package(Threads REQUIRED)
 
@@ -162,14 +158,27 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         set(DDC_VENDOR_LIB m1ddc)
 
     elseif (BUILD_ARCH STREQUAL "x86_64")
+        # On 10.9 ColorSync is a subframework of ApplicationServices, not a
+        # top-level framework, so ddcctl's `#include <ColorSync/...>` only
+        # resolves with this framework search path. (Harmless on newer macOS.)
+        set(APPLESERVICES_FW_DIR
+            "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks")
+
         add_library(ddcctl STATIC
             vendor/ddcctl/src/DDC.c
             vendor/ddcctl/src/ddcctl.m
+            compat_ioregistry_darwin.c
         )
         target_include_directories(ddcctl PUBLIC vendor/ddcctl/src)
         target_compile_options(ddcctl PRIVATE
             $<$<COMPILE_LANGUAGE:C>:-Wno-deprecated-declarations>
             $<$<COMPILE_LANGUAGE:OBJC>:-Wno-deprecated-declarations>
+            $<$<COMPILE_LANGUAGE:C>:-F${APPLESERVICES_FW_DIR}>
+            $<$<COMPILE_LANGUAGE:OBJC>:-F${APPLESERVICES_FW_DIR}>
+            # Give DDC.c a correct prototype for IORegistryEntryCopyPath() so a
+            # pre-10.11 implicit-int return doesn't truncate the CFStringRef.
+            $<$<COMPILE_LANGUAGE:C>:-include>
+            $<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_SOURCE_DIR}/compat_ioregistry_darwin.h>
         )
         target_link_libraries(ddcctl PUBLIC
             "-framework Foundation"
@@ -184,13 +193,35 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         message(FATAL_ERROR "Unsupported architecture: ${BUILD_ARCH}")
     endif()
 
-    # Common macOS frameworks
+    # Common macOS frameworks.
+    # NOTE: CoreDisplay (10.10+) is intentionally omitted -- it does not exist
+    # on 10.9 and nothing here references it.
     list(APPEND PLATFORM_LIBS
         "-framework IOKit"
         "-framework ApplicationServices"
         "-framework CoreGraphics"
-        "-framework CoreDisplay"
     )
+
+    # macOS < 10.12 has no clock_gettime() (used by dimmitd.c). Lean on
+    # macports-legacy-support (pkgsrc/MacPorts) for the missing libc pieces.
+    include(CheckSymbolExists)
+    check_symbol_exists(clock_gettime "time.h" HAVE_CLOCK_GETTIME)
+    if (NOT HAVE_CLOCK_GETTIME)
+        find_path(LEGACYSUPPORT_INCLUDE_DIR
+            NAMES MacportsLegacySupport.h
+            PATH_SUFFIXES LegacySupport
+            HINTS /opt/pkg/include /usr/pkg/include /opt/local/include)
+        find_library(LEGACYSUPPORT_LIB
+            NAMES MacportsLegacySupport
+            HINTS /opt/pkg/lib /usr/pkg/lib /opt/local/lib)
+        if (NOT LEGACYSUPPORT_INCLUDE_DIR OR NOT LEGACYSUPPORT_LIB)
+            message(FATAL_ERROR
+                "This macOS lacks clock_gettime() and macports-legacy-support "
+                "was not found. Install it (pkgsrc: macports-legacy-support) "
+                "or build on macOS 10.12+.")
+        endif()
+        message(STATUS "Using macports-legacy-support: ${LEGACYSUPPORT_LIB}")
+    endif()
 endif()
 
 # ============================================================================
@@ -204,6 +235,13 @@ add_executable(dimmitd
 
 target_include_directories(dimmitd PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(dimmitd PRIVATE Threads::Threads ${PLATFORM_LIBS})
+
+# macports-legacy-support for clock_gettime() etc. on macOS < 10.12.
+# Header dir goes BEFORE the system include path so its overrides win.
+if (LEGACYSUPPORT_INCLUDE_DIR)
+    target_include_directories(dimmitd BEFORE PRIVATE ${LEGACYSUPPORT_INCLUDE_DIR})
+    target_link_libraries(dimmitd PRIVATE ${LEGACYSUPPORT_LIB})
+endif()
 
 # Platform-specific DDC implementation
 string(TOLOWER "${CMAKE_SYSTEM_NAME}" SYSTEM_LOWER)
@@ -220,10 +258,12 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPL_SRC}")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_m1ddc.m)
         elseif (BUILD_ARCH STREQUAL "x86_64")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_ddcctl.c)
+            # This file also includes ddcctl's DDC.h, so it needs the same
+            # ColorSync-subframework search path as the ddcctl library.
             set_source_files_properties(
                 ddc_impl_darwin_ddcctl.c
                 PROPERTIES
-                    COMPILE_OPTIONS "-Wno-deprecated-declarations"
+                    COMPILE_OPTIONS "-Wno-deprecated-declarations;-F${APPLESERVICES_FW_DIR}"
             )
         endif()
         

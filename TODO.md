@@ -2,6 +2,7 @@
 
 ## Platform: macOS
 
+- [ ] Mavericks support
 - [ ] Build Universal
 - [ ] Stop needing `root`
 - [ ] Publish `.pkg`
