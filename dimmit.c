@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
     }
     size_t len = strlen(msg);
     if (write(sock, msg, len) < 0) perror("write");
-    if (len == 0 || msg[len-1] != '\n') write(sock, "\n", 1);
+    if ((len == 0 || msg[len-1] != '\n') && write(sock, "\n", 1) < 0) perror("write");
 
     close(sock);
     return 0;
