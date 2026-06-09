@@ -190,6 +190,17 @@ int main(void) {
         goto cleanup;
     }
     
+    /*
+     * Linux-only socket gating. On Linux the daemon runs as the root user
+     * (DDC writes need /dev/i2c-* access) and hands the socket to the "i2c"
+     * group so a non-root dimmit-up/-down can connect; see README.md "On Linux".
+     *
+     * Do NOT delete this as "dead code." It is a no-op elsewhere only because
+     * getgrnam("i2c") returns NULL there (macOS has no i2c group, and DDC on
+     * macOS needs neither the root user nor the i2c group). It stays until
+     * Linux itself no longer needs the root-user/i2c-group model. NetBSD still
+     * needs verification of whether it needs this too.
+     */
     struct group *i2c_grp = getgrnam("i2c");
     if (i2c_grp) {
         if (chown(sock_path, 0, i2c_grp->gr_gid) < 0) {
