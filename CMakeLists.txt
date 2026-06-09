@@ -15,18 +15,25 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     include(ExternalProject)
     include(GNUInstallDirs)
     
-# XXX just x86_64 when on Mavs
     # Build arm64
-    #    ExternalProject_Add(dimmit-arm64
-    #        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
-    #        BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/build-arm64
-    #        CMAKE_ARGS
-    #            -DCMAKE_OSX_ARCHITECTURES=arm64
-    #            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
-    #            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-    #        BUILD_ALWAYS 1
-    #        INSTALL_COMMAND ""
-    #    )
+    ExternalProject_Add(dimmit-arm64
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+        BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/build-arm64
+        CMAKE_ARGS
+            -DCMAKE_OSX_ARCHITECTURES=arm64
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DFORCE_COREDISPLAY=ON
+        CMAKE_COMMAND /opt/pkg/bin/cmake
+        # ExternalProject uses CMAKE_COMMAND as the build command by default,
+        # but doesn't pass the generator correctly if we override CMAKE_COMMAND.
+        # Let's specify the generator properly.
+        LIST_SEPARATOR |
+        BUILD_COMMAND /opt/pkg/bin/cmake --build <BINARY_DIR>
+        BUILD_ALWAYS 1
+        INSTALL_COMMAND ""
+    )
     
     # Build x86_64
     ExternalProject_Add(dimmit-x86_64
@@ -36,29 +43,31 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
             -DCMAKE_OSX_ARCHITECTURES=x86_64
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-        # Re-run the sub-build every time so edits to the shared sources are
-        # always picked up; ExternalProject otherwise caches aggressively. This
-        # trades a little incremental-build speed for not shipping stale binaries.
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        CMAKE_COMMAND /opt/pkg/bin/cmake
+        LIST_SEPARATOR |
+        BUILD_COMMAND /opt/pkg/bin/cmake --build <BINARY_DIR>
         BUILD_ALWAYS 1
         INSTALL_COMMAND ""
     )
     
-    # Stage the binaries. On Mavericks this is x86_64-only (arm64 is disabled
-    # above), so `lipo -create` with a single input just produces a thin Mach-O;
-    # re-enabling the arm64 ExternalProject restores a real fat binary.
+    # Stage the binaries.
     add_custom_target(dimmit-universal ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/universal
         COMMAND lipo -create
+            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmitd
             ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmitd
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
         COMMAND lipo -create
+            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-up
             ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-up
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-up
         COMMAND lipo -create
+            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-down
             ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-down
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-down
-        DEPENDS dimmit-x86_64
-        COMMENT "Staging x86_64 binaries..."
+        DEPENDS dimmit-arm64 dimmit-x86_64
+        COMMENT "Staging universal binaries..."
         BYPRODUCTS
             ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
             ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-up
@@ -171,6 +180,8 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         set(APPLESERVICES_FW_DIR
             "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks")
 
+        include_directories(SYSTEM "${APPLESERVICES_FW_DIR}")
+
         add_library(ddcctl STATIC
             vendor/ddcctl/src/DDC.c
             vendor/ddcctl/src/ddcctl.m
@@ -180,8 +191,6 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         target_compile_options(ddcctl PRIVATE
             $<$<COMPILE_LANGUAGE:C>:-Wno-deprecated-declarations>
             $<$<COMPILE_LANGUAGE:OBJC>:-Wno-deprecated-declarations>
-            $<$<COMPILE_LANGUAGE:C>:-F${APPLESERVICES_FW_DIR}>
-            $<$<COMPILE_LANGUAGE:OBJC>:-F${APPLESERVICES_FW_DIR}>
             # Give DDC.c a correct prototype for IORegistryEntryCopyPath() so a
             # pre-10.11 implicit-int return doesn't truncate the CFStringRef.
             $<$<COMPILE_LANGUAGE:C>:-include>
@@ -201,13 +210,15 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     endif()
 
     # Common macOS frameworks.
-    # NOTE: CoreDisplay (10.10+) is intentionally omitted -- it does not exist
-    # on 10.9 and nothing here references it.
     list(APPEND PLATFORM_LIBS
         "-framework IOKit"
         "-framework ApplicationServices"
         "-framework CoreGraphics"
     )
+
+    if (FORCE_COREDISPLAY OR NOT BUILD_ARCH STREQUAL "x86_64")
+        list(APPEND PLATFORM_LIBS "-framework CoreDisplay")
+    endif()
 
     # macOS < 10.12 has no clock_gettime() (used by dimmitd.c). Lean on
     # macports-legacy-support (pkgsrc/MacPorts) for the missing libc pieces.
@@ -265,12 +276,10 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPL_SRC}")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_m1ddc.m)
         elseif (BUILD_ARCH STREQUAL "x86_64")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_ddcctl.c)
-            # This file also includes ddcctl's DDC.h, so it needs the same
-            # ColorSync-subframework search path as the ddcctl library.
             set_source_files_properties(
                 ddc_impl_darwin_ddcctl.c
                 PROPERTIES
-                    COMPILE_OPTIONS "-Wno-deprecated-declarations;-F${APPLESERVICES_FW_DIR}"
+                    COMPILE_OPTIONS "-Wno-deprecated-declarations"
             )
         endif()
         
