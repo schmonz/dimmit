@@ -17,7 +17,12 @@ DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **lis
     CGDirectDisplayID displays[16];
     uint32_t count;
 
-    if (CGGetActiveDisplayList(16, displays, &count) != kCGErrorSuccess || count == 0) {
+    /* Use the online list, not the active list: a connected external display
+     * can be "online" (physically attached, DDC-reachable) without being
+     * "active" in the current context (e.g. when no GUI session owns it, or
+     * the panel is asleep). Brightness control should reach any connected
+     * external display. */
+    if (CGGetOnlineDisplayList(16, displays, &count) != kCGErrorSuccess || count == 0) {
         return DDC_ERROR;
     }
 

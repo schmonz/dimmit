@@ -2,7 +2,8 @@
 
 ## Platform: macOS
 
-- [ ] Mavericks support
+- [x] Mavericks support (x86_64 build + DDC read/write verified on a 2013 Mac
+      Pro / AMD FirePro D500 / DELL S3422DW)
 - [ ] Build Universal
 - [ ] Stop needing `root`
 - [ ] Publish `.pkg`
