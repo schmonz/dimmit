@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 
 if(APPLE)
-    project(MyProject LANGUAGES C OBJC)
+    project(dimmit LANGUAGES C OBJC)
 else()
-    project(MyProject LANGUAGES C)
+    project(dimmit LANGUAGES C)
 endif()
 
 # Detect if we're doing a macOS universal build
@@ -82,8 +82,12 @@ endif()
 # Normal build (single-arch on all platforms, or arch-specific Darwin build)
 # ============================================================================
 
-# XXX avoid OBJC on non-Apple platforms
-project(dimmit LANGUAGES C)
+# Declare the project for non-Apple platforms (C only). On Apple we already
+# called project(... C OBJC) at line 78; re-declaring with C-only here would
+# clobber the OBJC language and break the .m sources, so guard it.
+if (NOT APPLE)
+    project(dimmit LANGUAGES C)
+endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
