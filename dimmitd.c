@@ -135,12 +135,15 @@ void adjust_brightness(int delta) {
 }
 
 int main(void) {
-    int sock, client;
+    int sock = -1, client;
     struct sockaddr_un addr;
     char buf[16];
     ssize_t n;
     pthread_t worker;
-    
+    int worker_started = 0;
+    int bound = 0;
+    const char *sock_path = get_sock_path();
+
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
     
@@ -168,29 +171,28 @@ int main(void) {
         perror("pthread_create");
         goto cleanup;
     }
-    
-    const char *sock_path = get_sock_path();
+    worker_started = 1;
+
     unlink(sock_path);
-    
+
     sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
         perror("socket");
         goto cleanup;
     }
-    
+
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, sock_path, sizeof(addr.sun_path) - 1);
-    
+
     if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         perror("bind");
-        close(sock);
         goto cleanup;
     }
-    
+    bound = 1;
+
     if (listen(sock, 5) < 0) {
         perror("listen");
-        close(sock);
         goto cleanup;
     }
     
@@ -254,17 +256,20 @@ int main(void) {
         
         close(client);
     }
-    
-    pthread_cond_signal(&cond);
-    pthread_join(worker, NULL);
-    
-    close(sock);
-    unlink(sock_path);
-    
+
 cleanup:
+    /* Reached on normal shutdown and on every error path. Stop and join the
+     * worker if it was started, then release the socket and display. */
+    running = 0;
+    if (worker_started) {
+        pthread_cond_signal(&cond);
+        pthread_join(worker, NULL);
+    }
+    if (sock >= 0) close(sock);
+    if (bound) unlink(sock_path);
     if (ddc) {
         ddc_close_display(ddc);
     }
-    
+
     return 0;
 }
