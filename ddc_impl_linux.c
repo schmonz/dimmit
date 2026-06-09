@@ -51,9 +51,11 @@ DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **lis
         out->info[i].product_id = dl->info[i].product_code;
         out->info[i].is_builtin = 0; /* libddcutil does not expose this; assume external */
     }
-    /* Do NOT free ddca list yet; references held by wrappers.
-       However, ddca docs advise freeing list after use. To avoid dangling, copy refs via ddca_dup_display_ref if available.
-       In absence of that, keep the list allocated; we accept a small leak until process exit. */
+    /* A DDCA_Display_Ref returned in the info list stays valid until
+     * ddca_redetect_displays() is called; freeing the info list does not
+     * invalidate the refs our wrappers copied above. So release the ddcutil
+     * list now instead of leaking it until process exit. */
+    ddca_free_display_info_list(dl);
     *list_out = out;
     return DDC_OK;
 }
