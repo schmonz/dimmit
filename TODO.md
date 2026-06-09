@@ -8,9 +8,21 @@
       in CMakeLists.txt), but only the x86_64 sub-build is wired up; the arm64
       ExternalProject is still commented out, so the "universal" binary is
       currently thin (x86_64 only)
-- [ ] Stop needing `root`
+- [ ] Stop needing `root` (verified: 10.9 DDC needs neither root nor GUI-session
+      ownership, so the daemon's root warning is cosmetic on macOS)
+- [ ] Re-resolve the display on sleep/wake/hotplug — the daemon caches the
+      IOServicePort at startup, but 10.9 republishes the IOFramebuffer service on
+      sleep/wake/resolution-change/replug, after which writes silently fail;
+      register `CGDisplayRegisterReconfigurationCallback` or re-open per command
+- [ ] Ship `service_darwin.plist` as a per-user LaunchAgent rather than a root
+      LaunchDaemon, and confirm it loads on 10.9
+- [ ] Fall back to ddcctl's `IOFramebufferPortFromCGDisplayID` matcher when
+      `CGDisplayIOServicePort` fails (we use only the latter — fine on 10.9, but
+      it discards ddcctl's fallback matching)
 - [ ] Publish `.pkg`
   - [ ] Make it uninstallable
+  - [ ] Link macports-legacy-support statically (the `.a`) so the binaries don't
+        depend on `/opt/pkg` at runtime
 - [ ] Be able to self-update somehow (no GUI, so not Sparkle)
 - [ ] Stop needing [Karabiner-Elements](https://karabiner-elements.pqrs.org);
       somehow intercept brightness events directly
@@ -73,6 +85,13 @@ Known constraints to design around:
       hosted runner exists for it).
 - [ ] Collect the per-target artifacts into a single release (ties into the
       `.pkg` and system-package items above).
+- [ ] Link only the vendored code we actually use, on every platform. Static
+      archives link at object-file granularity, so an unused function riding in
+      a `.o` we do use still gets pulled in (e.g. ddcctl's matcher/EDID code
+      comes in with `DDC.c.o`). Enable dead-code stripping to drop the rest:
+      `-Wl,-dead_strip` on macOS (ld64), and `-ffunction-sections
+      -fdata-sections` + `-Wl,--gc-sections` on GNU/BSD ld. Avoid
+      `-force_load`/`--whole-archive`, which would defeat this.
 
 ## Moar goodies
 
