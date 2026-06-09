@@ -9,7 +9,11 @@
 #include <pwd.h>
 #include <grp.h>
 
-#define DDC_ADDR_7BIT 0x37  /* 0x6E >> 1 for 7-bit addressing */
+/* DDC/CI I2C wire addresses. These are bus-level details specific to this
+ * raw-ioctl NetBSD backend, so they live here rather than in the public API. */
+#define DDC_ADDR       0x6E         /* host -> display write address */
+#define DDC_REPLY_ADDR 0x6F         /* display -> host reply address */
+#define DDC_ADDR_7BIT  (DDC_ADDR >> 1)  /* 0x37, for 7-bit addressing */
 
 struct DDC_Display_Ref_s {
     char device_path[64];
@@ -48,7 +52,7 @@ DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **lis
         if (fd < 0) continue;
 
         uint8_t test_cmd[] = {0x51, 0x82, 0x01, VCP_BRIGHTNESS, 0x00, 0x00};
-        test_cmd[5] = ddc_checksum(0x6E, test_cmd, (int)sizeof(test_cmd) - 1);
+        test_cmd[5] = ddc_checksum(DDC_ADDR, test_cmd, (int)sizeof(test_cmd) - 1);
 
         i2c_ioctl_exec_t iie;
         memset(&iie, 0, sizeof(iie));
@@ -108,7 +112,7 @@ DDC_Status ddc_impl_close_display(DDC_Display_Handle handle) {
 DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
     if (!h || !value_out) return DDC_ERROR;
     uint8_t cmd[] = {0x51, 0x82, 0x01, feature_code, 0x00, 0x00};
-    cmd[5] = ddc_checksum(0x6E, cmd, (int)sizeof(cmd) - 1);
+    cmd[5] = ddc_checksum(DDC_ADDR, cmd, (int)sizeof(cmd) - 1);
     i2c_ioctl_exec_t iie; memset(&iie, 0, sizeof(iie));
     iie.iie_op = I2C_OP_WRITE_WITH_STOP; iie.iie_addr = DDC_ADDR_7BIT; iie.iie_cmd = cmd; iie.iie_cmdlen = sizeof(cmd);
     if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) return DDC_ERROR;
@@ -116,7 +120,7 @@ DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t featur
     uint8_t reply[12]; memset(&iie, 0, sizeof(iie));
     iie.iie_op = I2C_OP_READ_WITH_STOP; iie.iie_addr = DDC_ADDR_7BIT; iie.iie_buf = reply; iie.iie_buflen = sizeof(reply);
     if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) return DDC_ERROR;
-    if (reply[0] != 0x6F || reply[2] != 0x02 || reply[4] != feature_code) return DDC_ERROR;
+    if (reply[0] != DDC_REPLY_ADDR || reply[2] != 0x02 || reply[4] != feature_code) return DDC_ERROR;
     value_out->mh = reply[6]; value_out->ml = reply[7]; value_out->sh = reply[8]; value_out->sl = reply[9];
     h->max_brightness = (reply[6] << 8) | reply[7]; h->current_brightness = (reply[8] << 8) | reply[9];
     return DDC_OK;
@@ -125,7 +129,7 @@ DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t featur
 DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
     if (!h) return DDC_ERROR;
     uint8_t cmd[] = {0x51, 0x84, 0x03, feature_code, hi_byte, lo_byte, 0x00};
-    cmd[6] = ddc_checksum(0x6E, cmd, (int)sizeof(cmd) - 1);
+    cmd[6] = ddc_checksum(DDC_ADDR, cmd, (int)sizeof(cmd) - 1);
     i2c_ioctl_exec_t iie; memset(&iie, 0, sizeof(iie));
     iie.iie_op = I2C_OP_WRITE_WITH_STOP; iie.iie_addr = DDC_ADDR_7BIT; iie.iie_cmd = cmd; iie.iie_cmdlen = sizeof(cmd);
     if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) return DDC_ERROR;
