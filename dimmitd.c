@@ -20,6 +20,7 @@
 
 #define STEP 5
 #define DEBOUNCE_MS 200
+#define ACCEPT_BACKLOG 5
 
 static const char* get_sock_path(void) {
     const char *path = getenv("DIMMIT_SOCK");
@@ -191,7 +192,7 @@ int main(void) {
     }
     bound = 1;
 
-    if (listen(sock, 5) < 0) {
+    if (listen(sock, ACCEPT_BACKLOG) < 0) {
         perror("listen");
         goto cleanup;
     }

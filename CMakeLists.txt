@@ -36,6 +36,9 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
             -DCMAKE_OSX_ARCHITECTURES=x86_64
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        # Re-run the sub-build every time so edits to the shared sources are
+        # always picked up; ExternalProject otherwise caches aggressively. This
+        # trades a little incremental-build speed for not shipping stale binaries.
         BUILD_ALWAYS 1
         INSTALL_COMMAND ""
     )
@@ -286,6 +289,8 @@ endif()
 # Client Executables
 # ============================================================================
 
+# Same source, two executables: dimmit.c dispatches on argv[0] (its own basename),
+# so the only difference between "dimmit-up" and "dimmit-down" is the program name.
 add_executable(dimmit-up dimmit.c)
 add_executable(dimmit-down dimmit.c)
 

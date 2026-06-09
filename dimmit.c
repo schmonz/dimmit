@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) { perror("socket"); return 1; }
 
-    struct sockaddr_un addr = {};
+    struct sockaddr_un addr = {0};
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, get_sock_path(), sizeof(addr.sun_path) - 1);
 
