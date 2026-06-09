@@ -59,13 +59,16 @@ int init_monitor(void) {
     return 0;
 }
 
-void do_set_brightness(int value) {
+/* Perform the (slow) DDC write with the lock released. Returns 0 on success.
+ * The caller updates current_brightness under the lock so that global is never
+ * written outside the mutex. */
+int do_set_brightness(int value) {
     if (ddc_set_brightness(ddc, value) == 0) {
-        current_brightness = value;
         printf("Brightness: %d\n", value);
-    } else {
-        fprintf(stderr, "Failed to set brightness\n");
+        return 0;
     }
+    fprintf(stderr, "Failed to set brightness\n");
+    return -1;
 }
 
 void* brightness_worker(void* arg) {
@@ -97,10 +100,11 @@ void* brightness_worker(void* arg) {
                 
                 if (new_val != current_brightness) {
                     pthread_mutex_unlock(&lock);
-                    do_set_brightness(new_val);
+                    int ok = do_set_brightness(new_val);
                     pthread_mutex_lock(&lock);
+                    if (ok == 0) current_brightness = new_val;
                 }
-                
+
                 pending_delta = 0;
             }
         }
