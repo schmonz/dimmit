@@ -14,27 +14,49 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     project(dimmit-universal LANGUAGES C OBJC)
     include(ExternalProject)
     include(GNUInstallDirs)
-    
-    # Build arm64
-    ExternalProject_Add(dimmit-arm64
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
-        BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/build-arm64
-        CMAKE_ARGS
-            -DCMAKE_OSX_ARCHITECTURES=arm64
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-            -DFORCE_COREDISPLAY=ON
-        CMAKE_COMMAND /opt/pkg/bin/cmake
-        # ExternalProject uses CMAKE_COMMAND as the build command by default,
-        # but doesn't pass the generator correctly if we override CMAKE_COMMAND.
-        # Let's specify the generator properly.
-        LIST_SEPARATOR |
-        BUILD_COMMAND /opt/pkg/bin/cmake --build <BINARY_DIR>
-        BUILD_ALWAYS 1
-        INSTALL_COMMAND ""
+
+    # Probe whether this toolchain can actually emit an arm64 slice. The
+    # Mavericks-era clang (Xcode 6) rejects both `-arch arm64` and a 12.0
+    # deployment target ("invalid version number in '-mmacosx-version-min=12.0'"),
+    # so on such hosts we fall back to an x86_64-only binary instead of failing
+    # the entire universal build. Modern macOS toolchains pass the probe and get
+    # a real fat binary.
+    execute_process(
+        COMMAND ${CMAKE_C_COMPILER} -arch arm64 -mmacosx-version-min=12.0
+                -x c -c /dev/null -o /dev/null
+        RESULT_VARIABLE DIMMIT_ARM64_PROBE
+        OUTPUT_QUIET ERROR_QUIET
     )
-    
+    if (DIMMIT_ARM64_PROBE EQUAL 0)
+        set(DIMMIT_BUILD_ARM64 TRUE)
+        message(STATUS "Universal build: arm64 slice enabled")
+    else()
+        set(DIMMIT_BUILD_ARM64 FALSE)
+        message(STATUS "Universal build: toolchain cannot target arm64; building x86_64 only")
+    endif()
+
+    # Build arm64 (only where the toolchain supports it).
+    if (DIMMIT_BUILD_ARM64)
+        ExternalProject_Add(dimmit-arm64
+            SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
+            BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/build-arm64
+            CMAKE_ARGS
+                -DCMAKE_OSX_ARCHITECTURES=arm64
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+                -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+                -DFORCE_COREDISPLAY=ON
+            CMAKE_COMMAND /opt/pkg/bin/cmake
+            # ExternalProject uses CMAKE_COMMAND as the build command by default,
+            # but doesn't pass the generator correctly if we override CMAKE_COMMAND.
+            # Let's specify the generator properly.
+            LIST_SEPARATOR |
+            BUILD_COMMAND /opt/pkg/bin/cmake --build <BINARY_DIR>
+            BUILD_ALWAYS 1
+            INSTALL_COMMAND ""
+        )
+    endif()
+
     # Build x86_64
     ExternalProject_Add(dimmit-x86_64
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}
@@ -51,22 +73,29 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
         INSTALL_COMMAND ""
     )
     
-    # Stage the binaries.
+    # Stage the binaries. With only the x86_64 slice (e.g. on Mavericks), each
+    # `lipo -create` on a single input just produces a thin Mach-O; when the
+    # arm64 slice is also built, prepending it makes a real fat binary.
+    set(DIMMIT_DAEMON_SLICES ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmitd)
+    set(DIMMIT_UP_SLICES     ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-up)
+    set(DIMMIT_DOWN_SLICES   ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-down)
+    set(DIMMIT_SLICE_DEPS    dimmit-x86_64)
+    if (DIMMIT_BUILD_ARM64)
+        list(PREPEND DIMMIT_DAEMON_SLICES ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmitd)
+        list(PREPEND DIMMIT_UP_SLICES     ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-up)
+        list(PREPEND DIMMIT_DOWN_SLICES   ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-down)
+        list(APPEND  DIMMIT_SLICE_DEPS    dimmit-arm64)
+    endif()
+
     add_custom_target(dimmit-universal ALL
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/universal
-        COMMAND lipo -create
-            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmitd
-            ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmitd
+        COMMAND lipo -create ${DIMMIT_DAEMON_SLICES}
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
-        COMMAND lipo -create
-            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-up
-            ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-up
+        COMMAND lipo -create ${DIMMIT_UP_SLICES}
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-up
-        COMMAND lipo -create
-            ${CMAKE_CURRENT_BINARY_DIR}/build-arm64/dimmit-down
-            ${CMAKE_CURRENT_BINARY_DIR}/build-x86_64/dimmit-down
+        COMMAND lipo -create ${DIMMIT_DOWN_SLICES}
             -output ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmit-down
-        DEPENDS dimmit-arm64 dimmit-x86_64
+        DEPENDS ${DIMMIT_SLICE_DEPS}
         COMMENT "Staging universal binaries..."
         BYPRODUCTS
             ${CMAKE_CURRENT_BINARY_DIR}/universal/dimmitd
@@ -177,10 +206,27 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         # On 10.9 ColorSync is a subframework of ApplicationServices, not a
         # top-level framework, so ddcctl's `#include <ColorSync/...>` only
         # resolves with this framework search path. (Harmless on newer macOS.)
+        #
+        # CMAKE_OSX_SYSROOT can be empty when CMake lets the compiler pick its
+        # own default SDK (the case on a Tahoe / Apple-Silicon host driving the
+        # x86_64 sub-build). An empty value would root the path below at the
+        # *live* /System frameworks, which ship no Headers/. Worse, an -F there
+        # binds clang's `CoreGraphics.framework` lookup to that headerless copy
+        # and shadows the SDK's, breaking `#include <CoreGraphics/...>`. So fall
+        # back to the active SDK path, which has the headers. On Mavericks
+        # CMAKE_OSX_SYSROOT is set (or xcrun yields a 10.9 SDK that does have the
+        # subframework headers, or stays empty -> the live path that works
+        # there), so this is a no-op for that build.
+        set(APPLESERVICES_SYSROOT "${CMAKE_OSX_SYSROOT}")
+        if (NOT APPLESERVICES_SYSROOT)
+            execute_process(
+                COMMAND xcrun --show-sdk-path
+                OUTPUT_VARIABLE APPLESERVICES_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET)
+        endif()
         set(APPLESERVICES_FW_DIR
-            "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks")
-
-        include_directories(SYSTEM "${APPLESERVICES_FW_DIR}")
+            "${APPLESERVICES_SYSROOT}/System/Library/Frameworks/ApplicationServices.framework/Versions/A/Frameworks")
 
         add_library(ddcctl STATIC
             vendor/ddcctl/src/DDC.c
@@ -191,6 +237,13 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         target_compile_options(ddcctl PRIVATE
             $<$<COMPILE_LANGUAGE:C>:-Wno-deprecated-declarations>
             $<$<COMPILE_LANGUAGE:OBJC>:-Wno-deprecated-declarations>
+            # ColorSync is a *subframework* of ApplicationServices on 10.9, so
+            # `#include <ColorSync/...>` only resolves via a framework search
+            # path (-F); a plain -I/-isystem can't, because there's no literal
+            # ColorSync/ directory -- the header lives in ColorSync.framework/
+            # Headers/. Harmless on newer macOS (ColorSync is top-level there).
+            $<$<COMPILE_LANGUAGE:C>:-F${APPLESERVICES_FW_DIR}>
+            $<$<COMPILE_LANGUAGE:OBJC>:-F${APPLESERVICES_FW_DIR}>
             # Give DDC.c a correct prototype for IORegistryEntryCopyPath() so a
             # pre-10.11 implicit-int return doesn't truncate the CFStringRef.
             $<$<COMPILE_LANGUAGE:C>:-include>
@@ -276,10 +329,12 @@ if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPL_SRC}")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_m1ddc.m)
         elseif (BUILD_ARCH STREQUAL "x86_64")
             target_sources(dimmitd PRIVATE ddc_impl_darwin_ddcctl.c)
+            # This file also includes ddcctl's DDC.h, so it needs the same
+            # ColorSync-subframework search path as the ddcctl library.
             set_source_files_properties(
                 ddc_impl_darwin_ddcctl.c
                 PROPERTIES
-                    COMPILE_OPTIONS "-Wno-deprecated-declarations"
+                    COMPILE_OPTIONS "-Wno-deprecated-declarations;-F${APPLESERVICES_FW_DIR}"
             )
         endif()
         
