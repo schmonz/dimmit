@@ -1,5 +1,5 @@
-#include "ddc/implementation.h"
-#include "ddc/darwin/arch.h"
+#include "platform/ddc/implementation.h"
+#include "platform/ddc/darwin/arch.h"
 #include <unistd.h>
 #include <CoreGraphics/CoreGraphics.h>
 #include <stdlib.h>
@@ -93,9 +93,4 @@ DDC_Status ddc_implementation_set_non_table_vcp_value(DDC_Display_Handle h, uint
         return DDC_ERROR;
 
     return ddc_arch_set_vcp(h, feature_code, hi_byte, lo_byte);
-}
-
-int ddc_implementation_is_authorized(int client_fd) {
-    (void)client_fd;
-    return 1;
 }

@@ -2,7 +2,7 @@
 #define DDC_DARWIN_ARCH_H
 
 #include <stdint.h>
-#include "ddc/implementation.h"
+#include "platform/ddc/implementation.h"
 
 struct DDC_Display_Ref_s {
     uint32_t display_id;

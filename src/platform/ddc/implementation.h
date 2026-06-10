@@ -39,6 +39,5 @@ DDC_Status ddc_implementation_open_display(DDC_Display_Ref dref, int flags, DDC_
 DDC_Status ddc_implementation_close_display(DDC_Display_Handle handle);
 DDC_Status ddc_implementation_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out);
 DDC_Status ddc_implementation_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte);
-int ddc_implementation_is_authorized(int client_fd);
 
 #endif /* DDC_IMPLEMENTATION_H */

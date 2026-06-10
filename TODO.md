@@ -2,8 +2,6 @@
 
 ## Platform: macOS
 
-- Stop needing `root` (verified: 10.9 DDC needs neither root nor GUI-session
-      ownership, so the daemon's root warning is cosmetic on macOS)
 - Re-resolve the display on sleep/wake/hotplug — the daemon caches the
       IOServicePort at startup, but 10.9 republishes the IOFramebuffer service on
       sleep/wake/resolution-change/replug, after which writes silently fail;
@@ -21,7 +19,7 @@
 
 ## Platform: Linux
 
-- Stop needing `root`
+- Stop needing `root`?
 - Vendor [libddcutil.a](https://github.com/rockowitz/ddcutil) for consistency?
 - Publish easy-update system packages through OpenBuildService
 

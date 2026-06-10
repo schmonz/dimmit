@@ -231,7 +231,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         add_library(ddcctl STATIC
             vendor/ddcctl/src/DDC.c
             vendor/ddcctl/src/ddcctl.m
-            src/ddc/darwin/compat_ioregistry.c
+            src/platform/ddc/darwin/compat_ioregistry.c
         )
         target_include_directories(ddcctl PUBLIC vendor/ddcctl/src)
         target_compile_options(ddcctl PRIVATE
@@ -247,7 +247,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
             # Give DDC.c a correct prototype for IORegistryEntryCopyPath() so a
             # pre-10.11 implicit-int return doesn't truncate the CFStringRef.
             $<$<COMPILE_LANGUAGE:C>:-include>
-            $<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_SOURCE_DIR}/src/ddc/darwin/compat_ioregistry.h>
+            $<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_SOURCE_DIR}/src/platform/ddc/darwin/compat_ioregistry.h>
         )
         target_link_libraries(ddcctl PUBLIC
             "-framework Foundation"
@@ -311,7 +311,7 @@ add_executable(dimmitd
     src/dimmitd.c
     src/dimmer.c
     src/command.c
-    src/ddc/abstraction.c
+    src/platform/ddc/abstraction.c
 )
 
 # Include paths:
@@ -331,39 +331,51 @@ if (LEGACYSUPPORT_INCLUDE_DIR)
     target_link_libraries(dimmitd PRIVATE ${LEGACYSUPPORT_LIB})
 endif()
 
-# Platform-specific DDC implementation
+# ============================================================================
+# Platform backends
+# ============================================================================
+# Each subsystem under src/platform/<subsystem> provides one backend source per
+# OS, named <system>.c. This helper selects and adds the right one, failing the
+# configure if this platform has no backend for that subsystem. (Shared by the
+# ddc and access-control subsystems.)
 string(TOLOWER "${CMAKE_SYSTEM_NAME}" SYSTEM_LOWER)
-set(DDC_IMPLEMENTATION_SRC "src/ddc/${SYSTEM_LOWER}.c")
 
-if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPLEMENTATION_SRC}")
-    target_sources(dimmitd PRIVATE ${DDC_IMPLEMENTATION_SRC})
-    
-    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        target_sources(dimmitd PRIVATE src/ddc/darwin/arch.h)
-
-        # Add arch-specific glue code
-        if (BUILD_ARCH STREQUAL "arm64")
-            target_sources(dimmitd PRIVATE src/ddc/darwin/m1ddc.m)
-        elseif (BUILD_ARCH STREQUAL "x86_64")
-            target_sources(dimmitd PRIVATE src/ddc/darwin/ddcctl.c)
-            # This file also includes ddcctl's DDC.h, so it needs the same
-            # ColorSync-subframework search path as the ddcctl library.
-            set_source_files_properties(
-                src/ddc/darwin/ddcctl.c
-                PROPERTIES
-                    COMPILE_OPTIONS "-Wno-deprecated-declarations;-F${APPLESERVICES_FW_DIR}"
-            )
-        endif()
-        
-        target_link_libraries(dimmitd PRIVATE ${DDC_ARCH_LIB})
+function(dimmit_add_platform_backend target subsystem)
+    set(_src "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/${subsystem}/${SYSTEM_LOWER}.c")
+    if (NOT EXISTS "${_src}")
+        message(FATAL_ERROR
+            "No ${subsystem} backend for ${CMAKE_SYSTEM_NAME} (expected ${_src})")
     endif()
+    target_sources(${target} PRIVATE "${_src}")
+endfunction()
+
+dimmit_add_platform_backend(dimmitd ddc)
+dimmit_add_platform_backend(dimmitd access-control)
+
+# Platform-specific extras for the DDC backend (vendored libs, arch glue, header
+# search paths). The access-control backends need none of this.
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    target_sources(dimmitd PRIVATE src/platform/ddc/darwin/arch.h)
+
+    # Add arch-specific glue code
+    if (BUILD_ARCH STREQUAL "arm64")
+        target_sources(dimmitd PRIVATE src/platform/ddc/darwin/m1ddc.m)
+    elseif (BUILD_ARCH STREQUAL "x86_64")
+        target_sources(dimmitd PRIVATE src/platform/ddc/darwin/ddcctl.c)
+        # This file also includes ddcctl's DDC.h, so it needs the same
+        # ColorSync-subframework search path as the ddcctl library.
+        set_source_files_properties(
+            src/platform/ddc/darwin/ddcctl.c
+            PROPERTIES
+                COMPILE_OPTIONS "-Wno-deprecated-declarations;-F${APPLESERVICES_FW_DIR}"
+        )
+    endif()
+
+    target_link_libraries(dimmitd PRIVATE ${DDC_ARCH_LIB})
 
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(dimmitd PRIVATE ${DDCUTIL_INCLUDE_DIRS})
     target_compile_options(dimmitd PRIVATE ${DDCUTIL_CFLAGS_OTHER})
-    
-else()
-    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME} (Expected ${DDC_IMPLEMENTATION_SRC})")
 endif()
 
 # ============================================================================
@@ -389,17 +401,19 @@ install(TARGETS dimmit-up dimmit-down RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR
 # Tests
 # ============================================================================
 # test_dimmit.c links the daemon's logic modules directly -- the pure state
-# machine (dimmer.c), the command parser (command.c), and the ddc abstraction
-# (ddc/abstraction.c) driven by the in-memory mock backend (ddc/in_memory_mock.c)
-# -- so no hardware, frameworks, real clock, or worker thread are involved. (No
-# dimmitd.c here: the tested logic lives in modules now, not behind a
-# DIMMIT_TESTING include.) Run with `ctest` from the build directory (on macOS,
-# from the arch sub-build, e.g. build/build-x86_64).
+# machine (dimmer.c), the command parser (command.c), the ddc abstraction
+# (platform/ddc/abstraction.c) driven by the in-memory mock backend
+# (platform/ddc/in_memory_mock.c), and the access-control mock
+# (platform/access-control/mock.c) for the authorization test -- so no hardware,
+# frameworks, real clock, or worker thread are involved. (No dimmitd.c here: the
+# tested logic lives in modules now.) Run with `ctest` from the build directory
+# (on macOS, from the arch sub-build, e.g. build/build-x86_64).
 enable_testing()
 
 add_executable(test_dimmit
     src/test_dimmit.c src/dimmer.c src/command.c
-    src/ddc/abstraction.c src/ddc/in_memory_mock.c)
+    src/platform/ddc/abstraction.c src/platform/ddc/in_memory_mock.c
+    src/platform/access-control/mock.c)
 target_include_directories(test_dimmit PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 

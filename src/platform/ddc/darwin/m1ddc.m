@@ -1,7 +1,7 @@
 #import <CoreFoundation/CoreFoundation.h>
 
-#include "ddc/darwin/arch.h"
-#include "ddc/abstraction.h"
+#include "platform/ddc/darwin/arch.h"
+#include "platform/ddc/abstraction.h"
 
 #include <stdlib.h>
 #include <stdint.h>

@@ -1,5 +1,5 @@
-#include "ddc/abstraction.h"
-#include "ddc/implementation.h"
+#include "platform/ddc/abstraction.h"
+#include "platform/ddc/implementation.h"
 #include <stdlib.h>
 
 struct ddc_handle { DDC_Display_Handle dh; };
@@ -34,10 +34,6 @@ ddc_handle_t* ddc_open_display(void) {
     h->dh = dh;
     ddc_implementation_free_display_info_list(dlist);
     return h;
-}
-
-int ddc_is_authorized(int client_fd) {
-    return ddc_implementation_is_authorized(client_fd);
 }
 
 int ddc_get_brightness(ddc_handle_t *handle, int *current, int *max) {

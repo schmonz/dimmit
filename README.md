@@ -54,8 +54,8 @@ sudo ./dimmitd >/dev/null &
 ./dimmit-down
 ```
 
-On macOS no `root` is needed (DDC access doesn't require it, and `dimmitd`'s
-root warning there is cosmetic):
+On macOS no `root` is needed (DDC access doesn't require it, so `dimmitd`
+starts as your normal user):
 ```sh
 cd build/universal
 ./dimmitd >/dev/null &

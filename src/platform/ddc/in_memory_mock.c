@@ -1,17 +1,14 @@
 /* In-memory mock DDC backend for unit tests.
  *
- * Implements the ddc/implementation.h interface against a simulated external display
- * (current=50, max=100) so the daemon logic and the ddc.c wrapper can be
- * exercised with no real hardware. Authorization is settable via the global
- * ddc_mock_authorized so tests can drive the accept/reject path. */
-#include "ddc/implementation.h"
-#include "ddc/abstraction.h"
+ * Implements the platform/ddc/implementation.h interface against a simulated
+ * external display (current=50, max=100) so the daemon logic and the ddc
+ * abstraction can be exercised with no real hardware. */
+#include "platform/ddc/implementation.h"
+#include "platform/ddc/abstraction.h"
 #include <stdlib.h>
 
 struct DDC_Display_Ref_s { int id; };
 struct DDC_Display_Handle_s { int current; int max; };
-
-int ddc_mock_authorized = 1;
 
 static struct DDC_Display_Ref_s mock_ref = { 1 };
 
@@ -70,9 +67,4 @@ DDC_Status ddc_implementation_set_non_table_vcp_value(DDC_Display_Handle handle,
     if (feature_code != VCP_BRIGHTNESS) return DDC_ERROR;
     h->current = (hi_byte << 8) | lo_byte;
     return DDC_OK;
-}
-
-int ddc_implementation_is_authorized(int client_fd) {
-    (void)client_fd;
-    return ddc_mock_authorized;
 }

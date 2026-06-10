@@ -1,18 +1,20 @@
 /* Unit tests for the daemon's logic, exercised through the modules it now links
  * normally: the pure brightness/debounce state machine (dimmer.{c,h}), the
- * command parser (command.{c,h}), and the ddc.c wrapper driven by the in-memory
- * mock backend (ddc/in_memory_mock.c). No #include of dimmitd.c, and no real clock,
- * sockets, or worker thread are involved. */
+ * command parser (command.{c,h}), the ddc abstraction driven by the in-memory
+ * mock backend (platform/ddc/in_memory_mock.c), and the access-control mock
+ * (platform/access-control/mock.c). No #include of dimmitd.c, and no real
+ * clock, sockets, or worker thread are involved. */
 #include "dimmer.h"
 #include "command.h"
-#include "ddc/abstraction.h"
+#include "platform/ddc/abstraction.h"
+#include "platform/access-control/access-control.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
-extern int ddc_mock_authorized; /* from ddc/in_memory_mock.c */
+extern int access_control_mock_authorized; /* from platform/access-control/mock.c */
 
 static int checks = 0;
 static int failures = 0;
@@ -162,11 +164,11 @@ static void test_command_loop_end_to_end(void) {
 }
 
 static void test_authorization(void) {
-    ddc_mock_authorized = 1;
-    CHECK(ddc_is_authorized(0) == 1);
-    ddc_mock_authorized = 0;
-    CHECK(ddc_is_authorized(0) == 0);
-    ddc_mock_authorized = 1;
+    access_control_mock_authorized = 1;
+    CHECK(access_control_is_authorized(0) == 1);
+    access_control_mock_authorized = 0;
+    CHECK(access_control_is_authorized(0) == 0);
+    access_control_mock_authorized = 1;
 }
 
 static void test_ddc_roundtrip(void) {

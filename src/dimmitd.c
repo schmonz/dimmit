@@ -12,10 +12,9 @@
 #include <pthread.h>
 #include <sys/time.h>
 #include <time.h>
-#include <pwd.h>
-#include <grp.h>
 
-#include "ddc/abstraction.h"
+#include "platform/ddc/abstraction.h"
+#include "platform/access-control/access-control.h"
 #include "dimmer.h"
 #include "command.h"
 #include "config.h"
@@ -127,25 +126,13 @@ int main(void) {
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
 
-    if (geteuid() != 0) {
-        fprintf(stderr, "Warning: not running as root, DDC access may fail\n");
+    if (access_control_before_bind() < 0) {
+        return 1;
     }
 
     if (init_monitor() < 0) {
         return 1;
     }
-
-    /* NOTE: We stay root because DDC implementations may reopen devices on writes.
-     * If the backend keeps fds open, we could drop to 'nobody' here safely.
-     * Tested behavior: TBD - if writes work after dropping privs, uncomment below.
-     *
-     * if (geteuid() == 0) {
-     *     struct passwd *nobody = getpwnam("nobody");
-     *     if (nobody && setgid(nobody->pw_gid) == 0 && setuid(nobody->pw_uid) == 0) {
-     *         printf("Dropped privileges to nobody\n");
-     *     }
-     * }
-     */
 
     if (pthread_create(&worker, NULL, brightness_worker, NULL) != 0) {
         perror("pthread_create");
@@ -176,24 +163,12 @@ int main(void) {
         goto cleanup;
     }
 
-    /*
-     * Linux-only socket gating. On Linux the daemon runs as the root user
-     * (DDC writes need /dev/i2c-* access) and hands the socket to the "i2c"
-     * group so a non-root dimmit-up/-down can connect; see README.md "On Linux".
-     *
-     * Do NOT delete this as "dead code." It is a no-op elsewhere only because
-     * getgrnam("i2c") returns NULL there (macOS has no i2c group, and DDC on
-     * macOS needs neither the root user nor the i2c group). It stays until
-     * Linux itself no longer needs the root-user/i2c-group model. NetBSD still
-     * needs verification of whether it needs this too.
-     */
-    struct group *i2c_grp = getgrnam("i2c");
-    if (i2c_grp) {
-        if (chown(sock_path, 0, i2c_grp->gr_gid) < 0) {
-            perror("chown");
-        }
+    /* Expose the socket to the intended clients per platform policy (e.g. on
+     * Linux, hand it to the i2c group). Non-fatal: a failure here only affects
+     * who can connect, not whether the daemon runs. */
+    if (access_control_after_bind(sock_path) < 0) {
+        fprintf(stderr, "Warning: could not apply socket access policy\n");
     }
-    chmod(sock_path, 0660);
 
     printf("Listening on %s\n", sock_path);
 
@@ -214,7 +189,7 @@ int main(void) {
             break;
         }
 
-        if (!ddc_is_authorized(client)) {
+        if (!access_control_is_authorized(client)) {
             fprintf(stderr, "Access denied\n");
             close(client);
             continue;

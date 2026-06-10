@@ -1,13 +1,11 @@
-#include "ddc/implementation.h"
-#include "ddc/abstraction.h"
+#include "platform/ddc/implementation.h"
+#include "platform/ddc/abstraction.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <dev/i2c/i2c_io.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pwd.h>
-#include <grp.h>
 
 /* DDC/CI I2C wire addresses. These are bus-level details specific to this
  * raw-ioctl NetBSD backend, so they live here rather than in the public API. */
@@ -135,24 +133,4 @@ DDC_Status ddc_implementation_set_non_table_vcp_value(DDC_Display_Handle h, uint
     if (ioctl(h->fd, I2C_IOCTL_EXEC, &iie) < 0) return DDC_ERROR;
     h->current_brightness = (hi_byte << 8) | lo_byte;
     return DDC_OK;
-}
-
-int ddc_implementation_is_authorized(int client_fd) {
-    uid_t euid; gid_t egid; if (getpeereid(client_fd, &euid, &egid) < 0) return 0;
-    struct group *wheel = getgrnam("wheel"); if (!wheel) return 1;
-    struct passwd *pw = getpwuid(euid); if (pw && pw->pw_gid == wheel->gr_gid) return 1;
-    /* Start with a reasonable group count and grow once if it overflows;
-     * probing with a NULL groups array is not portable. */
-    const char *uname = pw ? pw->pw_name : "";
-    int ng = 32;
-    gid_t *gs = (gid_t*)malloc((size_t)ng * sizeof(gid_t)); if (!gs) return 0;
-    if (getgrouplist(uname, egid, gs, &ng) < 0) {
-        gid_t *resized = (gid_t*)realloc(gs, (size_t)ng * sizeof(gid_t));
-        if (!resized) { free(gs); return 0; }
-        gs = resized;
-        if (getgrouplist(uname, egid, gs, &ng) < 0) { free(gs); return 0; }
-    }
-    int ok = 0; for (int i = 0; i < ng; i++) if (gs[i] == wheel->gr_gid) { ok = 1; break; }
-    free(gs);
-    return ok;
 }
