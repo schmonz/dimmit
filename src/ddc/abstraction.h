@@ -1,5 +1,5 @@
-#ifndef DDC_H
-#define DDC_H
+#ifndef DDC_ABSTRACTION_H
+#define DDC_ABSTRACTION_H
 
 typedef struct ddc_handle ddc_handle_t;
 

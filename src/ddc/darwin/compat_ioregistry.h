@@ -1,5 +1,5 @@
-#ifndef DIMMIT_COMPAT_IOREGISTRY_DARWIN_H
-#define DIMMIT_COMPAT_IOREGISTRY_DARWIN_H
+#ifndef DIMMIT_COMPAT_IOREGISTRY_H
+#define DIMMIT_COMPAT_IOREGISTRY_H
 
 /*
  * IORegistryEntryCopyPath() is only declared starting in OS X 10.11. The
@@ -8,7 +8,7 @@
  * print device paths. On 10.9/10.10 the missing prototype makes the compiler
  * assume an int return, which truncates the returned CFStringRef pointer to 32
  * bits on x86_64 and crashes. We force-include this header into the ddcctl
- * build so the call site gets a correct prototype; compat_ioregistry_darwin.c
+ * build so the call site gets a correct prototype; compat_ioregistry.c
  * supplies the implementation (via IORegistryEntryGetPath, available since
  * 10.0). On 10.11+ the system declares and defines it, so this is a no-op.
  */
@@ -23,4 +23,4 @@ CFStringRef IORegistryEntryCopyPath(io_registry_entry_t entry, const io_name_t p
 
 #endif
 
-#endif /* DIMMIT_COMPAT_IOREGISTRY_DARWIN_H */
+#endif /* DIMMIT_COMPAT_IOREGISTRY_H */

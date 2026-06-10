@@ -1,21 +1,21 @@
 /* In-memory mock DDC backend for unit tests.
  *
- * Implements the ddc_impl.h interface against a simulated external display
+ * Implements the ddc/implementation.h interface against a simulated external display
  * (current=50, max=100) so the daemon logic and the ddc.c wrapper can be
  * exercised with no real hardware. Authorization is settable via the global
- * ddc_test_authorized so tests can drive the accept/reject path. */
-#include "ddc_impl.h"
-#include "ddc.h"
+ * ddc_mock_authorized so tests can drive the accept/reject path. */
+#include "ddc/implementation.h"
+#include "ddc/abstraction.h"
 #include <stdlib.h>
 
 struct DDC_Display_Ref_s { int id; };
 struct DDC_Display_Handle_s { int current; int max; };
 
-int ddc_test_authorized = 1;
+int ddc_mock_authorized = 1;
 
 static struct DDC_Display_Ref_s mock_ref = { 1 };
 
-DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **list_out) {
+DDC_Status ddc_implementation_get_display_info_list(int flags, DDC_Display_Info_List **list_out) {
     (void)flags;
     if (!list_out) return DDC_ERROR;
     DDC_Display_Info_List *list = (DDC_Display_Info_List*)malloc(sizeof(*list));
@@ -31,13 +31,13 @@ DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **lis
     return DDC_OK;
 }
 
-void ddc_impl_free_display_info_list(DDC_Display_Info_List *list) {
+void ddc_implementation_free_display_info_list(DDC_Display_Info_List *list) {
     if (!list) return;
     free(list->info);
     free(list);
 }
 
-DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
+DDC_Status ddc_implementation_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
     (void)flags;
     if (!dref || !handle_out) return DDC_ERROR;
     struct DDC_Display_Handle_s *h = (struct DDC_Display_Handle_s*)malloc(sizeof(*h));
@@ -48,12 +48,12 @@ DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Ha
     return DDC_OK;
 }
 
-DDC_Status ddc_impl_close_display(DDC_Display_Handle handle) {
+DDC_Status ddc_implementation_close_display(DDC_Display_Handle handle) {
     free(handle);
     return DDC_OK;
 }
 
-DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
+DDC_Status ddc_implementation_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
     struct DDC_Display_Handle_s *h = (struct DDC_Display_Handle_s*)handle;
     if (!h || !value_out) return DDC_ERROR;
     if (feature_code != VCP_BRIGHTNESS) return DDC_ERROR;
@@ -64,7 +64,7 @@ DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle handle, uint8_t f
     return DDC_OK;
 }
 
-DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
+DDC_Status ddc_implementation_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
     struct DDC_Display_Handle_s *h = (struct DDC_Display_Handle_s*)handle;
     if (!h) return DDC_ERROR;
     if (feature_code != VCP_BRIGHTNESS) return DDC_ERROR;
@@ -72,7 +72,7 @@ DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle handle, uint8_t f
     return DDC_OK;
 }
 
-int ddc_impl_is_authorized(int client_fd) {
+int ddc_implementation_is_authorized(int client_fd) {
     (void)client_fd;
-    return ddc_test_authorized;
+    return ddc_mock_authorized;
 }

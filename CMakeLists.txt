@@ -147,13 +147,13 @@ find_package(Threads REQUIRED)
 # ============================================================================
 
 set(DIMMIT_SOCK_DEFAULT "/tmp/dimmit.sock" CACHE STRING "Default Unix socket path for dimmit")
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h @ONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h @ONLY)
 
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service_systemd.service
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service/service_systemd.service
         ${CMAKE_CURRENT_BINARY_DIR}/service_systemd.service @ONLY)
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service_netbsd.sh
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service/service_netbsd.sh
         ${CMAKE_CURRENT_BINARY_DIR}/service_netbsd.sh @ONLY)
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service_darwin.plist
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service/service_darwin.plist
         ${CMAKE_CURRENT_BINARY_DIR}/service_darwin.plist @ONLY)
 
 # ============================================================================
@@ -200,7 +200,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
             "-framework CoreGraphics"
             "-framework IOKit"
         )
-        set(DDC_VENDOR_LIB m1ddc)
+        set(DDC_ARCH_LIB m1ddc)
 
     elseif (BUILD_ARCH STREQUAL "x86_64")
         # On 10.9 ColorSync is a subframework of ApplicationServices, not a
@@ -231,7 +231,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         add_library(ddcctl STATIC
             vendor/ddcctl/src/DDC.c
             vendor/ddcctl/src/ddcctl.m
-            compat_ioregistry_darwin.c
+            src/ddc/darwin/compat_ioregistry.c
         )
         target_include_directories(ddcctl PUBLIC vendor/ddcctl/src)
         target_compile_options(ddcctl PRIVATE
@@ -247,7 +247,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
             # Give DDC.c a correct prototype for IORegistryEntryCopyPath() so a
             # pre-10.11 implicit-int return doesn't truncate the CFStringRef.
             $<$<COMPILE_LANGUAGE:C>:-include>
-            $<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_SOURCE_DIR}/compat_ioregistry_darwin.h>
+            $<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_SOURCE_DIR}/src/ddc/darwin/compat_ioregistry.h>
         )
         target_link_libraries(ddcctl PUBLIC
             "-framework Foundation"
@@ -256,7 +256,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
             "-framework IOKit"
             "-framework ApplicationServices"
         )
-        set(DDC_VENDOR_LIB ddcctl)
+        set(DDC_ARCH_LIB ddcctl)
 
     else()
         message(FATAL_ERROR "Unsupported architecture: ${BUILD_ARCH}")
@@ -300,13 +300,20 @@ endif()
 # ============================================================================
 
 add_executable(dimmitd
-    dimmitd.c
-    dimmer.c
-    command.c
-    ddc.c
+    src/dimmitd.c
+    src/dimmer.c
+    src/command.c
+    src/ddc/abstraction.c
 )
 
-target_include_directories(dimmitd PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+# Include paths:
+#  - BINARY_DIR  : generated config.h
+#  - SOURCE_DIR  : glue code references vendored headers by repo-relative path
+#                  (e.g. "vendor/ddcctl/src/DDC.h")
+#  - SOURCE_DIR/src : the ddc subsystem is addressed by layer, so callers write
+#                  "ddc/abstraction.h" / "ddc/implementation.h" / "ddc/darwin/arch.h"
+target_include_directories(dimmitd PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(dimmitd PRIVATE Threads::Threads ${PLATFORM_LIBS})
 
 # macports-legacy-support for clock_gettime() etc. on macOS < 10.12.
@@ -318,29 +325,29 @@ endif()
 
 # Platform-specific DDC implementation
 string(TOLOWER "${CMAKE_SYSTEM_NAME}" SYSTEM_LOWER)
-set(DDC_IMPL_SRC "ddc_impl_${SYSTEM_LOWER}.c")
+set(DDC_IMPLEMENTATION_SRC "src/ddc/${SYSTEM_LOWER}.c")
 
-if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPL_SRC}")
-    target_sources(dimmitd PRIVATE ${DDC_IMPL_SRC})
+if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${DDC_IMPLEMENTATION_SRC}")
+    target_sources(dimmitd PRIVATE ${DDC_IMPLEMENTATION_SRC})
     
     if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        target_sources(dimmitd PRIVATE ddc_impl_darwin_arch.h)
-        
+        target_sources(dimmitd PRIVATE src/ddc/darwin/arch.h)
+
         # Add arch-specific glue code
         if (BUILD_ARCH STREQUAL "arm64")
-            target_sources(dimmitd PRIVATE ddc_impl_darwin_m1ddc.m)
+            target_sources(dimmitd PRIVATE src/ddc/darwin/m1ddc.m)
         elseif (BUILD_ARCH STREQUAL "x86_64")
-            target_sources(dimmitd PRIVATE ddc_impl_darwin_ddcctl.c)
+            target_sources(dimmitd PRIVATE src/ddc/darwin/ddcctl.c)
             # This file also includes ddcctl's DDC.h, so it needs the same
             # ColorSync-subframework search path as the ddcctl library.
             set_source_files_properties(
-                ddc_impl_darwin_ddcctl.c
+                src/ddc/darwin/ddcctl.c
                 PROPERTIES
                     COMPILE_OPTIONS "-Wno-deprecated-declarations;-F${APPLESERVICES_FW_DIR}"
             )
         endif()
         
-        target_link_libraries(dimmitd PRIVATE ${DDC_VENDOR_LIB})
+        target_link_libraries(dimmitd PRIVATE ${DDC_ARCH_LIB})
     endif()
 
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -348,7 +355,7 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_compile_options(dimmitd PRIVATE ${DDCUTIL_CFLAGS_OTHER})
     
 else()
-    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME} (Expected ${DDC_IMPL_SRC})")
+    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME} (Expected ${DDC_IMPLEMENTATION_SRC})")
 endif()
 
 # ============================================================================
@@ -357,8 +364,8 @@ endif()
 
 # Same source, two executables: dimmit.c dispatches on argv[0] (its own basename),
 # so the only difference between "dimmit-up" and "dimmit-down" is the program name.
-add_executable(dimmit-up dimmit.c)
-add_executable(dimmit-down dimmit.c)
+add_executable(dimmit-up src/dimmit.c)
+add_executable(dimmit-down src/dimmit.c)
 
 target_include_directories(dimmit-up PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(dimmit-down PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
@@ -374,16 +381,18 @@ install(TARGETS dimmit-up dimmit-down RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR
 # Tests
 # ============================================================================
 # test_dimmit.c links the daemon's logic modules directly -- the pure state
-# machine (dimmer.c), the command parser (command.c), and the ddc.c wrapper
-# driven by the in-memory mock backend (ddc_impl_test.c) -- so no hardware,
-# frameworks, real clock, or worker thread are involved. (No dimmitd.c here:
-# the tested logic lives in modules now, not behind a DIMMIT_TESTING include.)
-# Run with `ctest` from the build directory (on macOS, from the arch sub-build,
-# e.g. build/build-x86_64).
+# machine (dimmer.c), the command parser (command.c), and the ddc abstraction
+# (ddc/abstraction.c) driven by the in-memory mock backend (ddc/in_memory_mock.c)
+# -- so no hardware, frameworks, real clock, or worker thread are involved. (No
+# dimmitd.c here: the tested logic lives in modules now, not behind a
+# DIMMIT_TESTING include.) Run with `ctest` from the build directory (on macOS,
+# from the arch sub-build, e.g. build/build-x86_64).
 enable_testing()
 
-add_executable(test_dimmit test_dimmit.c dimmer.c command.c ddc.c ddc_impl_test.c)
+add_executable(test_dimmit
+    src/test_dimmit.c src/dimmer.c src/command.c
+    src/ddc/abstraction.c src/ddc/in_memory_mock.c)
 target_include_directories(test_dimmit PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 add_test(NAME dimmit_unit COMMAND test_dimmit)

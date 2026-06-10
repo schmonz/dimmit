@@ -1,7 +1,7 @@
 #import <CoreFoundation/CoreFoundation.h>
 
-#include "ddc_impl_darwin_arch.h"
-#include "ddc.h"
+#include "ddc/darwin/arch.h"
+#include "ddc/abstraction.h"
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -18,7 +18,7 @@ static int is_supported_feature(uint8_t feature_code) {
     return feature_code == VCP_BRIGHTNESS; /* brightness only */
 }
 
-DDC_Status ddc_open_arch(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
+DDC_Status ddc_arch_open(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
     (void)dref;
     (void)flags;
 
@@ -38,7 +38,7 @@ DDC_Status ddc_open_arch(DDC_Display_Ref dref, int flags, DDC_Display_Handle *ha
     return DDC_OK;
 }
 
-DDC_Status ddc_close_arch(DDC_Display_Handle handle) {
+DDC_Status ddc_arch_close(DDC_Display_Handle handle) {
     if (!handle) return DDC_ERROR;
 
     if (handle->avService) {
@@ -49,7 +49,7 @@ DDC_Status ddc_close_arch(DDC_Display_Handle handle) {
     return DDC_OK;
 }
 
-DDC_Status ddc_get_vcp_arch(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
+DDC_Status ddc_arch_get_vcp(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
     if (!h || !h->avService || !value_out) return DDC_ERROR;
     if (!is_supported_feature(feature_code)) return DDC_ERROR;
 
@@ -73,7 +73,7 @@ DDC_Status ddc_get_vcp_arch(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_
     return DDC_OK;
 }
 
-DDC_Status ddc_set_vcp_arch(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
+DDC_Status ddc_arch_set_vcp(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
     if (!h || !h->avService) return DDC_ERROR;
     if (!is_supported_feature(feature_code)) return DDC_ERROR;
 

@@ -15,7 +15,7 @@
 #include <pwd.h>
 #include <grp.h>
 
-#include "ddc.h"
+#include "ddc/abstraction.h"
 #include "dimmer.h"
 #include "command.h"
 #include "config.h"

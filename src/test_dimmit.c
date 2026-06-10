@@ -1,18 +1,18 @@
 /* Unit tests for the daemon's logic, exercised through the modules it now links
  * normally: the pure brightness/debounce state machine (dimmer.{c,h}), the
  * command parser (command.{c,h}), and the ddc.c wrapper driven by the in-memory
- * mock backend (ddc_impl_test.c). No #include of dimmitd.c, and no real clock,
+ * mock backend (ddc/in_memory_mock.c). No #include of dimmitd.c, and no real clock,
  * sockets, or worker thread are involved. */
 #include "dimmer.h"
 #include "command.h"
-#include "ddc.h"
+#include "ddc/abstraction.h"
 
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
-extern int ddc_test_authorized; /* from ddc_impl_test.c */
+extern int ddc_mock_authorized; /* from ddc/in_memory_mock.c */
 
 static int checks = 0;
 static int failures = 0;
@@ -162,11 +162,11 @@ static void test_command_loop_end_to_end(void) {
 }
 
 static void test_authorization(void) {
-    ddc_test_authorized = 1;
+    ddc_mock_authorized = 1;
     CHECK(ddc_is_authorized(0) == 1);
-    ddc_test_authorized = 0;
+    ddc_mock_authorized = 0;
     CHECK(ddc_is_authorized(0) == 0);
-    ddc_test_authorized = 1;
+    ddc_mock_authorized = 1;
 }
 
 static void test_ddc_roundtrip(void) {

@@ -2,12 +2,6 @@
 
 ## Platform: macOS
 
-- [x] Mavericks support (x86_64 build + DDC read/write verified on a 2013 Mac
-      Pro / AMD FirePro D500 / DELL S3422DW)
-- [x] Build Universal — the arm64 ExternalProject is gated behind a configure-
-      time compiler probe, so a modern macOS host emits a real arm64 + x86_64 fat
-      binary (confirmed on Tahoe) and a Mavericks host falls back to a thin
-      x86_64 binary; lipo staging into `build/universal/` handles both
 - [ ] Stop needing `root` (verified: 10.9 DDC needs neither root nor GUI-session
       ownership, so the daemon's root warning is cosmetic on macOS)
 - [ ] Re-resolve the display on sleep/wake/hotplug — the daemon caches the
@@ -37,23 +31,9 @@
 
 - [ ] Test
 
-## Testability
+## Platform: Windows
 
-What would have made the current tests easier to write, and how to get there:
-
-- [x] Split the brightness/debounce state machine out of `dimmitd.c` into a
-      standalone module (no sockets, threads, or stdio) that the daemon and the
-      tests both link normally — done as `dimmer.{c,h}` (plus `command.{c,h}`
-      for the parser); tests no longer `#include "dimmitd.c"` under a
-      `DIMMIT_TESTING` guard.
-- [x] Inject the clock into the debounce logic (pass `now` in, or take a clock
-      function pointer) so timing/debounce is tested deterministically, without
-      real sleeps and without spinning up the worker thread — `dimmer_adjust`
-      and `dimmer_due` take a `struct timeval now`.
-- [x] Exercise the accept/command loop end to end against a fake socket plus the
-      in-memory `ddc_impl_test.c` display, not just the extracted helpers — done
-      by extracting `read_command(fd)` and driving it over a real AF_UNIX
-      `socketpair` through to a simulated brightness change.
+- [ ] Investigate need, feasibility, utility -- from 11 back to XP
 
 ## Build & release automation
 
@@ -76,10 +56,6 @@ Known constraints to design around:
       target with no manual flags on each of: Mavericks Intel, Apple Silicon,
       Linux, NetBSD. (macOS now auto-detects its buildable slices via the arm64
       probe; Linux builds natively; NetBSD still untested.)
-- [x] Re-enable the arm64 ExternalProject in `CMakeLists.txt` and emit a real
-      fat macOS binary where the host SDK allows (Apple Silicon), falling back
-      to thin x86_64 on Mavericks. Done via a configure-time `-arch arm64`
-      compiler probe, so no manual editing per host.
 - [ ] Local "build everything" target/script that fans out to the available
       hosts (e.g. over SSH to a NetBSD box and a Linux box, plus the local Mac)
       and collects the artifacts in one place.
@@ -101,4 +77,17 @@ Known constraints to design around:
 
 - [ ] Handle multiple external displays
 - [ ] Handle internal displays too
+- [ ] Adjust multiple displays -- including internal ones -- in synchrony. Two
+      architectural consequences for the `ddc/` subsystem:
+      1. The abstraction selects a *single* display today (`ddc_open_display`
+         picks the first non-builtin), so synchronized control needs it to
+         manage a set of displays, not one handle.
+      2. The abstraction is not actually DDC-independent yet: the VCP feature
+         codes and the non-table VCP value packing live in
+         `ddc/abstraction.{c,h}`, not in the backends. Internal panels aren't
+         driven over DDC (CoreDisplay/DisplayServices on macOS, sysfs backlight
+         on Linux), so adding such a backend means pushing the VCP/DDC specifics
+         down into the DDC implementations and having the top layer speak
+         generic brightness (current/max, or 0-100) -- at which point it is no
+         longer a `ddc_*` API and would be renamed accordingly.
 - [ ] Translate to Zig?

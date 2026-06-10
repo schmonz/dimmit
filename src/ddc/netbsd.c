@@ -1,5 +1,5 @@
-#include "ddc_impl.h"
-#include "ddc.h"
+#include "ddc/implementation.h"
+#include "ddc/abstraction.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -33,7 +33,7 @@ static uint8_t ddc_checksum(uint8_t init, const uint8_t *data, int len) {
     return chk;
 }
 
-DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **list_out) {
+DDC_Status ddc_implementation_get_display_info_list(int flags, DDC_Display_Info_List **list_out) {
     (void)flags;
     if (!list_out) return DDC_ERROR;
 
@@ -86,13 +86,13 @@ DDC_Status ddc_impl_get_display_info_list(int flags, DDC_Display_Info_List **lis
     return DDC_OK;
 }
 
-void ddc_impl_free_display_info_list(DDC_Display_Info_List *list) {
+void ddc_implementation_free_display_info_list(DDC_Display_Info_List *list) {
     if (!list) return;
     if (list->info) { for (int i = 0; i < list->ct; i++) { free(list->info[i].dref); } free(list->info); }
     free(list);
 }
 
-DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
+DDC_Status ddc_implementation_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
     (void)flags;
     if (!dref || !handle_out) return DDC_ERROR;
     int fd = open(dref->device_path, O_RDWR);
@@ -102,14 +102,14 @@ DDC_Status ddc_impl_open_display(DDC_Display_Ref dref, int flags, DDC_Display_Ha
     h->fd = fd; h->max_brightness = 100; h->current_brightness = 50; *handle_out = h; return DDC_OK;
 }
 
-DDC_Status ddc_impl_close_display(DDC_Display_Handle handle) {
+DDC_Status ddc_implementation_close_display(DDC_Display_Handle handle) {
     if (!handle) return DDC_ERROR;
     if (handle->fd >= 0) close(handle->fd);
     free(handle);
     return DDC_OK;
 }
 
-DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
+DDC_Status ddc_implementation_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_Table_Vcp_Value *value_out) {
     if (!h || !value_out) return DDC_ERROR;
     uint8_t cmd[] = {0x51, 0x82, 0x01, feature_code, 0x00, 0x00};
     cmd[5] = ddc_checksum(DDC_ADDR, cmd, (int)sizeof(cmd) - 1);
@@ -126,7 +126,7 @@ DDC_Status ddc_impl_get_non_table_vcp_value(DDC_Display_Handle h, uint8_t featur
     return DDC_OK;
 }
 
-DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
+DDC_Status ddc_implementation_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t feature_code, uint8_t hi_byte, uint8_t lo_byte) {
     if (!h) return DDC_ERROR;
     uint8_t cmd[] = {0x51, 0x84, 0x03, feature_code, hi_byte, lo_byte, 0x00};
     cmd[6] = ddc_checksum(DDC_ADDR, cmd, (int)sizeof(cmd) - 1);
@@ -137,7 +137,7 @@ DDC_Status ddc_impl_set_non_table_vcp_value(DDC_Display_Handle h, uint8_t featur
     return DDC_OK;
 }
 
-int ddc_impl_is_authorized(int client_fd) {
+int ddc_implementation_is_authorized(int client_fd) {
     uid_t euid; gid_t egid; if (getpeereid(client_fd, &euid, &egid) < 0) return 0;
     struct group *wheel = getgrnam("wheel"); if (!wheel) return 1;
     struct passwd *pw = getpwuid(euid); if (pw && pw->pw_gid == wheel->gr_gid) return 1;

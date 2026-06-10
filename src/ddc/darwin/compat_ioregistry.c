@@ -1,4 +1,4 @@
-#include "compat_ioregistry_darwin.h"
+#include "compat_ioregistry.h"
 
 #if !defined(MAC_OS_X_VERSION_MIN_REQUIRED) || MAC_OS_X_VERSION_MIN_REQUIRED < 101100
 
