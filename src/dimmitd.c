@@ -15,6 +15,7 @@
 
 #include "platform/ddc/abstraction.h"
 #include "platform/access-control/access-control.h"
+#include "platform/logging/logging.h"
 #include "dimmer.h"
 #include "command.h"
 #include "config.h"
@@ -122,6 +123,10 @@ int main(void) {
     int worker_started = 0;
     int bound = 0;
     const char *sock_path = get_sock_path();
+
+    if (logging_init() < 0) {
+        fprintf(stderr, "Warning: logging not redirected; continuing\n");
+    }
 
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
