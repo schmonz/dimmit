@@ -15,7 +15,14 @@
 
 struct DDC_Display_Handle_s {
     CGDirectDisplayID display_id;
-    io_service_t framebuffer;
+    /* No cached io_service_t: CGDisplayIOServicePort can in principle return a
+     * stale port after a display reconfiguration (sleep/wake/resolution/replug),
+     * so we re-resolve it per operation from the stable display_id. The lookup is
+     * an IORegistry hit, negligible next to the I2C transaction, and the port is
+     * a borrowed reference (Get Rule: retain count stays flat across calls, CG
+     * owns it) so re-resolving neither leaks nor needs IOObjectRelease. This is
+     * defensive: we have not actually observed a post-reconfiguration failure on
+     * the verified hardware. */
 };
 
 static int is_supported_feature(uint8_t feature_code) {
@@ -32,9 +39,10 @@ DDC_Status ddc_arch_open(DDC_Display_Ref dref, int flags, DDC_Display_Handle *ha
 
     h->display_id = (CGDirectDisplayID)dref->display_id;
 
-    /* Deprecated, but fine for Intel-only builds; matches ddcctl’s approach. */
-    h->framebuffer = CGDisplayIOServicePort(h->display_id);
-    if (!h->framebuffer) {
+    /* Validate that the display resolves now (so a bogus/builtin display fails
+     * early), but do not cache the result — it is re-resolved per operation.
+     * Deprecated, but fine for Intel-only builds; matches ddcctl’s approach. */
+    if (!CGDisplayIOServicePort(h->display_id)) {
         free(h);
         return DDC_ERROR;
     }
@@ -53,12 +61,17 @@ DDC_Status ddc_arch_get_vcp(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_
     if (!h || !value_out) return DDC_ERROR;
     if (!is_supported_feature(feature_code)) return DDC_ERROR;
 
+    /* Re-resolve fresh: the port cached at open() may be stale (reconfiguration).
+     * Borrowed reference (Get Rule) — owned by CoreGraphics, do not release. */
+    io_service_t framebuffer = CGDisplayIOServicePort(h->display_id);
+    if (!framebuffer) return DDC_ERROR;
+
     struct DDCReadCommand cmd;
     memset(&cmd, 0, sizeof(cmd));
     cmd.control_id = (UInt8)feature_code;
     cmd.success = false;
 
-    if (!DDCRead(h->framebuffer, &cmd) || !cmd.success) {
+    if (!DDCRead(framebuffer, &cmd) || !cmd.success) {
         return DDC_ERROR;
     }
 
@@ -76,12 +89,17 @@ DDC_Status ddc_arch_set_vcp(DDC_Display_Handle h, uint8_t feature_code, uint8_t 
     unsigned int value16 = ((unsigned int)hi_byte << 8) | (unsigned int)lo_byte;
     UInt8 value8 = (value16 > 255u) ? 255u : (UInt8)value16;
 
+    /* Re-resolve fresh: the port cached at open() may be stale (reconfiguration).
+     * Borrowed reference (Get Rule) — owned by CoreGraphics, do not release. */
+    io_service_t framebuffer = CGDisplayIOServicePort(h->display_id);
+    if (!framebuffer) return DDC_ERROR;
+
     struct DDCWriteCommand cmd;
     memset(&cmd, 0, sizeof(cmd));
     cmd.control_id = (UInt8)feature_code;
     cmd.new_value = value8;
 
-    if (!DDCWrite(h->framebuffer, &cmd)) {
+    if (!DDCWrite(framebuffer, &cmd)) {
         return DDC_ERROR;
     }
 
