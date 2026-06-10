@@ -3,7 +3,10 @@
 The brightness keys on your keyboard adjust your display promptly and smoothly -- for _internal_ displays.
 Dimmit lets them do the same for external displays.
 
-Tested on Linux amd64 and macOS arm64. Other platforms welcome. (There's untested code for NetBSD and macOS amd64.)
+Tested on Linux amd64, macOS arm64 (Apple Silicon, modern macOS), and macOS
+x86_64 down to 10.9 Mavericks (DDC read/write verified on a 2013 Mac Pro / AMD
+FirePro D500 driving a DELL S3422DW). Other platforms welcome. (There's untested
+code for NetBSD.)
 
 Dimmit is heavily vibe-coded.
 I certainly didn't know the first thing about how to control monitor brightness on any platform, and would not have bothered writing Dimmit without LLM help.
@@ -12,17 +15,29 @@ I certainly didn't know the first thing about how to control monitor brightness 
 
 Build-time dependencies:
 - CMake
-- `pkg-config` and `libddcutil-dev` (on Linux)
+- Linux: `pkg-config` and `libddcutil-dev`
+- macOS: a Command Line Tools / Xcode toolchain. On macOS &lt; 10.12 you also
+  need [`macports-legacy-support`](https://github.com/macports/macports-legacy-support)
+  (for `clock_gettime()`); install it from pkgsrc or MacPorts. The macOS
+  universal build currently drives its per-architecture sub-builds through
+  pkgsrc CMake at `/opt/pkg/bin/cmake`.
 
 Run-time dependencies:
-- `libddcutil4` (on Linux)
+- Linux: `libddcutil4`
+- macOS: [Karabiner-Elements](https://karabiner-elements.pqrs.org) to map the
+  brightness keys (see [Use](#use)). On macOS &lt; 10.12 the binaries also link
+  against the `macports-legacy-support` dylib, so it must remain installed.
 
 Then:
 ```sh
 cmake -B build && cmake --build build
 ```
 
-The binaries land in `build/` on Linux and NetBSD, and in `build/universal/` on macOS (a single staging directory for the per-architecture builds).
+On macOS the binaries are staged in `build/universal/`: a real arm64 + x86_64
+fat binary where the toolchain can target arm64 (Apple Silicon / modern macOS),
+or an x86_64-only thin binary where it can't (e.g. Mavericks' Xcode 6). The
+x86_64 slice targets 10.9; the arm64 slice targets 12.0. On Linux and NetBSD the
+binaries land in `build/`.
 
 ## Use
 
@@ -39,7 +54,8 @@ sudo ./dimmitd >/dev/null &
 ./dimmit-down
 ```
 
-On macOS:
+On macOS no `root` is needed (DDC access doesn't require it, and `dimmitd`'s
+root warning there is cosmetic):
 ```sh
 cd build/universal
 ./dimmitd >/dev/null &

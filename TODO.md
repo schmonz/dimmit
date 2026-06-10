@@ -4,10 +4,10 @@
 
 - [x] Mavericks support (x86_64 build + DDC read/write verified on a 2013 Mac
       Pro / AMD FirePro D500 / DELL S3422DW)
-- [ ] Build Universal — scaffolding is in place (ExternalProject + lipo staging
-      in CMakeLists.txt), but only the x86_64 sub-build is wired up; the arm64
-      ExternalProject is still commented out, so the "universal" binary is
-      currently thin (x86_64 only)
+- [x] Build Universal — the arm64 ExternalProject is gated behind a configure-
+      time compiler probe, so a modern macOS host emits a real arm64 + x86_64 fat
+      binary (confirmed on Tahoe) and a Mavericks host falls back to a thin
+      x86_64 binary; lipo staging into `build/universal/` handles both
 - [ ] Stop needing `root` (verified: 10.9 DDC needs neither root nor GUI-session
       ownership, so the daemon's root warning is cosmetic on macOS)
 - [ ] Re-resolve the display on sleep/wake/hotplug — the daemon caches the
@@ -60,11 +60,12 @@ Goal: one command (locally) and one workflow (CI) produce binaries for every
 target: macOS x86_64 (10.9 Mavericks), macOS arm64, Linux, NetBSD.
 
 Known constraints to design around:
-- A Mavericks Intel host can build the 10.9 x86_64 slice but has no SDK to
-  target arm64.
-- A modern Apple Silicon host (Tahoe) builds arm64/universal but can't readily
-  target a 10.9 deployment. So no single macOS host produces every slice — the
-  10.9 x86_64 artifact likely has to come from the Mavericks machine itself.
+- A Mavericks Intel host builds only a thin x86_64 slice (its Xcode 6 clang
+  can't target arm64), but that slice is verified to run on 10.9.
+- A modern Apple Silicon host (Tahoe) builds a real universal binary, but its
+  x86_64 slice — though it sets a 10.9 deployment target — is compiled against a
+  modern SDK and is not verified to run on 10.9. So the artifact actually
+  attested on 10.9 still has to come from the Mavericks machine itself.
 - GitHub Actions offers no Mavericks-era macOS runner and no native NetBSD
   runner.
 
@@ -72,10 +73,12 @@ Known constraints to design around:
       artifact, and how the macOS x86_64-on-10.9 vs arm64 split is resolved.
 - [ ] Make `cmake -B build && cmake --build build` produce the correct native
       target with no manual flags on each of: Mavericks Intel, Apple Silicon,
-      Linux, NetBSD.
-- [ ] Re-enable the arm64 ExternalProject in `CMakeLists.txt` and emit a real
+      Linux, NetBSD. (macOS now auto-detects its buildable slices via the arm64
+      probe; Linux builds natively; NetBSD still untested.)
+- [x] Re-enable the arm64 ExternalProject in `CMakeLists.txt` and emit a real
       fat macOS binary where the host SDK allows (Apple Silicon), falling back
-      to thin x86_64 on Mavericks.
+      to thin x86_64 on Mavericks. Done via a configure-time `-arch arm64`
+      compiler probe, so no manual editing per host.
 - [ ] Local "build everything" target/script that fans out to the available
       hosts (e.g. over SSH to a NetBSD box and a Linux box, plus the local Mac)
       and collects the artifacts in one place.
