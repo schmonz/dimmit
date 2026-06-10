@@ -1,10 +1,11 @@
-/* Unit tests for the daemon logic and the ddc.c wrapper.
- *
- * dimmitd.c is #included directly (with DIMMIT_TESTING defined, which drops its
- * main()) so the tests can reach its static helpers and globals. The ddc layer
- * is driven through the in-memory mock backend in ddc_impl_test.c. */
-#define DIMMIT_TESTING 1
-#include "dimmitd.c"
+/* Unit tests for the daemon's logic, exercised through the modules it now links
+ * normally: the pure brightness/debounce state machine (dimmer.{c,h}), the
+ * command parser (command.{c,h}), and the ddc.c wrapper driven by the in-memory
+ * mock backend (ddc_impl_test.c). No #include of dimmitd.c, and no real clock,
+ * sockets, or worker thread are involved. */
+#include "dimmer.h"
+#include "command.h"
+#include "ddc.h"
 
 #include <stdio.h>
 
@@ -21,20 +22,6 @@ static int failures = 0;
     } \
 } while (0)
 
-static void reset_state(void) {
-    current_brightness = 50;
-    max_brightness = 100;
-    pending_delta = 0;
-}
-
-static void test_clamp_brightness(void) {
-    CHECK(clamp_brightness(50, 100) == 50);
-    CHECK(clamp_brightness(0, 100) == 0);
-    CHECK(clamp_brightness(100, 100) == 100);
-    CHECK(clamp_brightness(-5, 100) == 0);    /* floor */
-    CHECK(clamp_brightness(150, 100) == 100); /* ceiling */
-}
-
 static void test_parse_command(void) {
     CHECK(parse_command("up") == STEP);
     CHECK(parse_command("down") == -STEP);
@@ -42,51 +29,85 @@ static void test_parse_command(void) {
     CHECK(parse_command("") == 0);
 }
 
-static void test_adjust_brightness(void) {
-    /* Accumulates across calls before the worker applies them. */
-    reset_state();
-    adjust_brightness(STEP);
-    CHECK(pending_delta == STEP);
-    adjust_brightness(STEP);
-    CHECK(pending_delta == 2 * STEP);
+static void test_dimmer_accumulates(void) {
+    dimmer_t d;
+    struct timeval t = {100, 0};
 
-    /* A step that would overshoot the ceiling lands exactly on it. */
-    reset_state();
-    current_brightness = 98;
-    adjust_brightness(STEP);
-    CHECK(pending_delta == 2);            /* target 100, not 103 */
-    adjust_brightness(STEP);
-    CHECK(pending_delta == 2);            /* already pinned at 100 */
-
-    /* Same for the floor. */
-    reset_state();
-    current_brightness = 3;
-    adjust_brightness(-STEP);
-    CHECK(pending_delta == -3);           /* target 0, not -2 */
-    adjust_brightness(-STEP);
-    CHECK(pending_delta == -3);
-    reset_state();
+    dimmer_init(&d, 50, 100);
+    dimmer_adjust(&d, STEP, t);
+    CHECK(d.pending_delta == STEP);
+    dimmer_adjust(&d, STEP, t);
+    CHECK(d.pending_delta == 2 * STEP);
 }
 
-static void test_debounce(void) {
-    struct timeval last = {100, 0};
-    struct timeval soon = {100, 100000};  /* +100 ms */
-    struct timeval edge = {100, 200000};  /* +200 ms */
-    struct timeval late = {100, 250000};  /* +250 ms */
+static void test_dimmer_clamps(void) {
+    dimmer_t d;
+    struct timeval t = {100, 0};
 
-    CHECK(elapsed_ms(last, soon) == 100);
-    CHECK(elapsed_ms(last, edge) == 200);
-    CHECK(elapsed_ms(last, late) == 250);
+    /* A step that would overshoot the ceiling lands exactly on it. */
+    dimmer_init(&d, 98, 100);
+    dimmer_adjust(&d, STEP, t);
+    CHECK(d.pending_delta == 2);   /* target 100, not 103 */
+    dimmer_adjust(&d, STEP, t);
+    CHECK(d.pending_delta == 2);   /* already pinned at 100 */
 
-    CHECK(debounce_ready(last, soon) == 0);  /* 100 < DEBOUNCE_MS */
-    CHECK(debounce_ready(last, edge) == 1);  /* 200 >= DEBOUNCE_MS */
-    CHECK(debounce_ready(last, late) == 1);
+    /* Same for the floor. */
+    dimmer_init(&d, 3, 100);
+    dimmer_adjust(&d, -STEP, t);
+    CHECK(d.pending_delta == -3);  /* target 0, not -2 */
+    dimmer_adjust(&d, -STEP, t);
+    CHECK(d.pending_delta == -3);
+}
 
-    /* Spanning a whole-second boundary. */
+static void test_dimmer_due_debounce(void) {
+    dimmer_t d;
+    struct timeval t0 = {100, 0};
+    int target = -1;
+
+    dimmer_init(&d, 50, 100);
+    dimmer_adjust(&d, STEP, t0);
+
+    struct timeval soon = {100, 100000};  /* +100 ms: not yet */
+    CHECK(dimmer_due(&d, soon, &target) == 0);
+
+    struct timeval edge = {100, 200000};  /* +200 ms: due */
+    CHECK(dimmer_due(&d, edge, &target) == 1);
+    CHECK(target == 55);
+
+    /* Spanning a whole-second boundary still measures 200 ms. */
+    dimmer_init(&d, 50, 100);
     struct timeval a = {100, 900000};
-    struct timeval b = {101, 100000};        /* +200 ms */
-    CHECK(elapsed_ms(a, b) == 200);
-    CHECK(debounce_ready(a, b) == 1);
+    dimmer_adjust(&d, STEP, a);
+    struct timeval b = {101, 100000};
+    CHECK(dimmer_due(&d, b, &target) == 1);
+}
+
+static void test_dimmer_not_due_without_pending(void) {
+    dimmer_t d;
+    struct timeval late = {200, 0};
+    int target = -1;
+
+    dimmer_init(&d, 50, 100);   /* nothing pending */
+    CHECK(dimmer_due(&d, late, &target) == 0);
+}
+
+static void test_dimmer_commit_and_settled(void) {
+    dimmer_t d;
+    struct timeval t0 = {100, 0};
+    struct timeval edge = {100, 200000};
+    int target = -1;
+
+    dimmer_init(&d, 50, 100);
+    dimmer_adjust(&d, STEP, t0);
+    CHECK(dimmer_due(&d, edge, &target) == 1);
+
+    dimmer_commit(&d, target);
+    CHECK(d.current == 55);
+    dimmer_settled(&d);
+    CHECK(d.pending_delta == 0);
+
+    /* Consumed: no longer due. */
+    CHECK(dimmer_due(&d, edge, &target) == 0);
 }
 
 static void test_authorization(void) {
@@ -115,10 +136,12 @@ static void test_ddc_roundtrip(void) {
 }
 
 int main(void) {
-    test_clamp_brightness();
     test_parse_command();
-    test_adjust_brightness();
-    test_debounce();
+    test_dimmer_accumulates();
+    test_dimmer_clamps();
+    test_dimmer_due_debounce();
+    test_dimmer_not_due_without_pending();
+    test_dimmer_commit_and_settled();
     test_authorization();
     test_ddc_roundtrip();
 

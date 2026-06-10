@@ -301,6 +301,8 @@ endif()
 
 add_executable(dimmitd
     dimmitd.c
+    dimmer.c
+    command.c
     ddc.c
 )
 
@@ -371,29 +373,17 @@ install(TARGETS dimmit-up dimmit-down RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR
 # ============================================================================
 # Tests
 # ============================================================================
-# test_dimmit.c #includes dimmitd.c (with DIMMIT_TESTING set, which drops its
-# main()) and links the in-memory mock backend ddc_impl_test.c instead of any
-# real platform implementation, so no hardware or frameworks are involved.
+# test_dimmit.c links the daemon's logic modules directly -- the pure state
+# machine (dimmer.c), the command parser (command.c), and the ddc.c wrapper
+# driven by the in-memory mock backend (ddc_impl_test.c) -- so no hardware,
+# frameworks, real clock, or worker thread are involved. (No dimmitd.c here:
+# the tested logic lives in modules now, not behind a DIMMIT_TESTING include.)
 # Run with `ctest` from the build directory (on macOS, from the arch sub-build,
 # e.g. build/build-x86_64).
 enable_testing()
 
-add_executable(test_dimmit test_dimmit.c ddc.c ddc_impl_test.c)
-target_compile_definitions(test_dimmit PRIVATE DIMMIT_TESTING=1)
+add_executable(test_dimmit test_dimmit.c dimmer.c command.c ddc.c ddc_impl_test.c)
 target_include_directories(test_dimmit PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(test_dimmit PRIVATE Threads::Threads)
-
-# clock_gettime() is referenced by the included dimmitd.c; match the daemon's
-# legacy-support linkage so the test links on macOS < 10.12.
-if (LEGACYSUPPORT_INCLUDE_DIR)
-    target_include_directories(test_dimmit BEFORE PRIVATE ${LEGACYSUPPORT_INCLUDE_DIR})
-    target_link_libraries(test_dimmit PRIVATE ${LEGACYSUPPORT_LIB})
-endif()
-
-# On Linux, clock_gettime() lives in librt on older glibc.
-if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_link_libraries(test_dimmit PRIVATE rt)
-endif()
 
 add_test(NAME dimmit_unit COMMAND test_dimmit)

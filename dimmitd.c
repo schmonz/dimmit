@@ -16,10 +16,10 @@
 #include <grp.h>
 
 #include "ddc.h"
+#include "dimmer.h"
+#include "command.h"
 #include "config.h"
 
-#define STEP 5
-#define DEBOUNCE_MS 200
 #define ACCEPT_BACKLOG 5
 
 static const char* get_sock_path(void) {
@@ -28,65 +28,42 @@ static const char* get_sock_path(void) {
 }
 
 static volatile int running = 1;
-static int current_brightness = 50;
-static int max_brightness = 100;
 static ddc_handle_t *ddc = NULL;
 
+/* All brightness/debounce state lives in the dimmer state machine (dimmer.c).
+ * The mutex guards it against the worker thread; the slow DDC write happens
+ * with the lock released. */
+static dimmer_t dimmer;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-static int pending_delta = 0;
-static struct timeval last_cmd;
-
-/* Clamp a brightness value into [0, max]. */
-static int clamp_brightness(int value, int max) {
-    if (value < 0) return 0;
-    if (value > max) return max;
-    return value;
-}
-
-/* Whole milliseconds elapsed from a to b. */
-static long elapsed_ms(struct timeval a, struct timeval b) {
-    return (b.tv_sec - a.tv_sec) * 1000 + (b.tv_usec - a.tv_usec) / 1000;
-}
-
-/* Has the debounce window passed since the last command at `last`? */
-static int debounce_ready(struct timeval last, struct timeval now) {
-    return elapsed_ms(last, now) >= DEBOUNCE_MS;
-}
-
-/* Map a textual command to a brightness delta; 0 means unrecognized. */
-static int parse_command(const char *cmd) {
-    if (strcmp(cmd, "up") == 0) return STEP;
-    if (strcmp(cmd, "down") == 0) return -STEP;
-    return 0;
-}
 
 static void sighandler(int sig) {
     running = 0;
 }
 
 static int init_monitor(void) {
+    dimmer_init(&dimmer, 50, 100);  /* sane defaults until the display answers */
+
     ddc = ddc_open_display();
     if (!ddc) {
         fprintf(stderr, "Failed to open display\n");
         return -1;
     }
-    
+
     int cur, max;
     if (ddc_get_brightness(ddc, &cur, &max) == 0) {
-        current_brightness = cur;
-        max_brightness = max;
+        dimmer_init(&dimmer, cur, max);
         printf("Monitor initialized: current=%d, max=%d\n", cur, max);
     } else {
         fprintf(stderr, "Warning: couldn't read initial brightness\n");
     }
-    
+
     return 0;
 }
 
 /* Perform the (slow) DDC write with the lock released. Returns 0 on success.
- * The caller updates current_brightness under the lock so that global is never
- * written outside the mutex. */
+ * The caller commits the new value into the dimmer under the lock so that
+ * state is never written outside the mutex. */
 static int do_set_brightness(int value) {
     if (ddc_set_brightness(ddc, value) == 0) {
         printf("Brightness: %d\n", value);
@@ -98,61 +75,47 @@ static int do_set_brightness(int value) {
 
 static void* brightness_worker(void* arg) {
     struct timespec ts;
-    
+
     while (running) {
         pthread_mutex_lock(&lock);
-        
+
         clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_nsec += DEBOUNCE_MS * 1000000L;
+        ts.tv_nsec += DIMMER_DEBOUNCE_MS * 1000000L;
         if (ts.tv_nsec >= 1000000000L) {
             ts.tv_sec++;
             ts.tv_nsec -= 1000000000L;
         }
-        
+
         pthread_cond_timedwait(&cond, &lock, &ts);
-        
-        if (pending_delta != 0) {
-            struct timeval now;
-            gettimeofday(&now, NULL);
 
-            if (debounce_ready(last_cmd, now)) {
-                int new_val = clamp_brightness(current_brightness + pending_delta, max_brightness);
+        struct timeval now;
+        gettimeofday(&now, NULL);
 
-                if (new_val != current_brightness) {
-                    pthread_mutex_unlock(&lock);
-                    int ok = do_set_brightness(new_val);
-                    pthread_mutex_lock(&lock);
-                    if (ok == 0) current_brightness = new_val;
-                }
-
-                pending_delta = 0;
-            }
+        int target;
+        if (dimmer_due(&dimmer, now, &target)) {
+            pthread_mutex_unlock(&lock);
+            int ok = do_set_brightness(target);
+            pthread_mutex_lock(&lock);
+            if (ok == 0) dimmer_commit(&dimmer, target);
+            dimmer_settled(&dimmer);
         }
-        
+
         pthread_mutex_unlock(&lock);
     }
-    
+
     return NULL;
 }
 
 static void adjust_brightness(int delta) {
+    struct timeval now;
+    gettimeofday(&now, NULL);
+
     pthread_mutex_lock(&lock);
-    
-    gettimeofday(&last_cmd, NULL);
-
-    /* Clamp the pending target into [0, max] so a step that would overshoot a
-     * boundary still moves to the boundary (e.g. 3 - 5 -> 0, 98 + 5 -> 100)
-     * rather than being rejected, and so holding a key can't accumulate a
-     * runaway delta past the limits. */
-    int projected = clamp_brightness(current_brightness + pending_delta + delta, max_brightness);
-    pending_delta = projected - current_brightness;
-
+    dimmer_adjust(&dimmer, delta, now);
     pthread_cond_signal(&cond);
-
     pthread_mutex_unlock(&lock);
 }
 
-#ifndef DIMMIT_TESTING
 int main(void) {
     int sock = -1, client;
     struct sockaddr_un addr;
@@ -165,15 +128,15 @@ int main(void) {
 
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
-    
+
     if (geteuid() != 0) {
         fprintf(stderr, "Warning: not running as root, DDC access may fail\n");
     }
-    
+
     if (init_monitor() < 0) {
         return 1;
     }
-    
+
     /* NOTE: We stay root because DDC implementations may reopen devices on writes.
      * If the backend keeps fds open, we could drop to 'nobody' here safely.
      * Tested behavior: TBD - if writes work after dropping privs, uncomment below.
@@ -185,7 +148,7 @@ int main(void) {
      *     }
      * }
      */
-    
+
     if (pthread_create(&worker, NULL, brightness_worker, NULL) != 0) {
         perror("pthread_create");
         goto cleanup;
@@ -214,7 +177,7 @@ int main(void) {
         perror("listen");
         goto cleanup;
     }
-    
+
     /*
      * Linux-only socket gating. On Linux the daemon runs as the root user
      * (DDC writes need /dev/i2c-* access) and hands the socket to the "i2c"
@@ -233,37 +196,37 @@ int main(void) {
         }
     }
     chmod(sock_path, 0660);
-    
+
     printf("Listening on %s\n", sock_path);
-    
+
     while (running) {
         fd_set fds;
         struct timeval tv = {1, 0};
-        
+
         FD_ZERO(&fds);
         FD_SET(sock, &fds);
-        
+
         if (select(sock + 1, &fds, NULL, NULL, &tv) <= 0)
             continue;
-        
+
         client = accept(sock, NULL, NULL);
         if (client < 0) {
             if (errno == EINTR) continue;
             perror("accept");
             break;
         }
-        
+
         if (!ddc_is_authorized(client)) {
             fprintf(stderr, "Access denied\n");
             close(client);
             continue;
         }
-        
+
         n = read(client, buf, sizeof(buf) - 1);
         if (n > 0) {
             buf[n] = '\0';
             if (buf[n-1] == '\n') buf[n-1] = '\0';
-            
+
             int delta = parse_command(buf);
             if (delta != 0) {
                 adjust_brightness(delta);
@@ -271,7 +234,7 @@ int main(void) {
                 fprintf(stderr, "Unknown command: %s\n", buf);
             }
         }
-        
+
         close(client);
     }
 
@@ -291,4 +254,3 @@ cleanup:
 
     return 0;
 }
-#endif /* DIMMIT_TESTING */
