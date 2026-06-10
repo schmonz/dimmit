@@ -282,12 +282,20 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
             NAMES MacportsLegacySupport.h
             PATH_SUFFIXES LegacySupport
             HINTS /opt/pkg/include /usr/pkg/include /opt/local/include)
+        # Require the static archive (libMacportsLegacySupport.a) so the x86_64
+        # binary carries no runtime dependency on /opt/pkg -- needed for a
+        # relocatable .pkg. Constrain the search to .a only; the .dylib is not
+        # acceptable, so a missing archive is a hard configure error.
+        set(_dimmit_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
+        set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
         find_library(LEGACYSUPPORT_LIB
             NAMES MacportsLegacySupport
             HINTS /opt/pkg/lib /usr/pkg/lib /opt/local/lib)
+        set(CMAKE_FIND_LIBRARY_SUFFIXES ${_dimmit_saved_suffixes})
         if (NOT LEGACYSUPPORT_INCLUDE_DIR OR NOT LEGACYSUPPORT_LIB)
             message(FATAL_ERROR
-                "This macOS lacks clock_gettime() and macports-legacy-support "
+                "This macOS lacks clock_gettime() and the static "
+                "macports-legacy-support archive (libMacportsLegacySupport.a) "
                 "was not found. Install it (pkgsrc: macports-legacy-support) "
                 "or build on macOS 10.12+.")
         endif()
