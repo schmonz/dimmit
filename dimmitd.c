@@ -119,8 +119,6 @@ static void adjust_brightness(int delta) {
 int main(void) {
     int sock = -1, client;
     struct sockaddr_un addr;
-    char buf[16];
-    ssize_t n;
     pthread_t worker;
     int worker_started = 0;
     int bound = 0;
@@ -222,17 +220,11 @@ int main(void) {
             continue;
         }
 
-        n = read(client, buf, sizeof(buf) - 1);
-        if (n > 0) {
-            buf[n] = '\0';
-            if (buf[n-1] == '\n') buf[n-1] = '\0';
-
-            int delta = parse_command(buf);
-            if (delta != 0) {
-                adjust_brightness(delta);
-            } else {
-                fprintf(stderr, "Unknown command: %s\n", buf);
-            }
+        int delta = read_command(client);
+        if (delta != 0) {
+            adjust_brightness(delta);
+        } else {
+            fprintf(stderr, "Ignoring empty or unknown command\n");
         }
 
         close(client);

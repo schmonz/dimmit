@@ -41,18 +41,19 @@
 
 What would have made the current tests easier to write, and how to get there:
 
-- [ ] Split the brightness/debounce state machine out of `dimmitd.c` into a
+- [x] Split the brightness/debounce state machine out of `dimmitd.c` into a
       standalone module (no sockets, threads, or stdio) that the daemon and the
-      tests both link normally — so tests no longer have to `#include
-      "dimmitd.c"` under a `DIMMIT_TESTING` guard just to reach static helpers.
-- [ ] Inject the clock into the debounce logic (pass `now` in, or take a clock
+      tests both link normally — done as `dimmer.{c,h}` (plus `command.{c,h}`
+      for the parser); tests no longer `#include "dimmitd.c"` under a
+      `DIMMIT_TESTING` guard.
+- [x] Inject the clock into the debounce logic (pass `now` in, or take a clock
       function pointer) so timing/debounce is tested deterministically, without
-      real sleeps and without spinning up the worker thread.
-- [ ] Exercise the accept/command loop end to end against a fake socket plus the
-      in-memory `ddc_impl_test.c` display, not just the extracted helpers — the
-      `ddc_impl.h` seam already makes the backend swappable; extend that to the
-      socket I/O so a request can be driven through to a simulated brightness
-      change in a test.
+      real sleeps and without spinning up the worker thread — `dimmer_adjust`
+      and `dimmer_due` take a `struct timeval now`.
+- [x] Exercise the accept/command loop end to end against a fake socket plus the
+      in-memory `ddc_impl_test.c` display, not just the extracted helpers — done
+      by extracting `read_command(fd)` and driving it over a real AF_UNIX
+      `socketpair` through to a simulated brightness change.
 
 ## Build & release automation
 
