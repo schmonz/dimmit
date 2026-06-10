@@ -2,12 +2,23 @@
 
 ## Platform: macOS
 
-- Re-resolve the display on sleep/wake/hotplug — the daemon caches the
-      IOServicePort at startup, but 10.9 republishes the IOFramebuffer service on
-      sleep/wake/resolution-change/replug, after which writes silently fail;
-      register `CGDisplayRegisterReconfigurationCallback` or re-open per command
-- Ship `service_darwin.plist` as a per-user LaunchAgent rather than a root
-      LaunchDaemon, and confirm it loads on 10.9
+- Watch for a framebuffer-port change in real use. The x86_64 backend now
+      re-resolves the IOFramebuffer port per command (defensive) and logs a line
+      if the port ever differs between commands. The originally-feared "writes
+      silently fail after sleep/wake" was NOT reproduced on the verified hardware
+      (2013 Mac Pro / FirePro D500 / DELL S3422DW) across sleep/wake or a display
+      power-cycle, and isn't clearly attested online. If that log line never fires
+      over real-world sleep/wake cycles, the re-resolve is pure insurance and the
+      instrumentation can be removed.
+- Verify and (if needed) fix the same on Apple Silicon (`m1ddc.m`,
+      `IOAVService`), which still caches its own service handle and is unverified
+      on this axis — reproduce on an Apple Silicon box, then apply the same
+      re-resolve-per-command pattern if a post-wake failure (or a port change)
+      appears.
+- Reconfiguration callback for hotplug: when we add multiple/hotplugged display
+      support, drive re-resolution — and display *reselection*, since the cached
+      `CGDirectDisplayID` itself goes wrong on replug — from
+      `CGDisplayRegisterReconfigurationCallback` rather than per-command lookups.
 - Fall back to ddcctl's `IOFramebufferPortFromCGDisplayID` matcher when
       `CGDisplayIOServicePort` fails (we use only the latter — fine on 10.9, but
       it discards ddcctl's fallback matching)
