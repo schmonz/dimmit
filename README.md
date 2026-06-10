@@ -79,7 +79,22 @@ This installs `dimmitd` to the system `sbin` directory and `dimmit-up` /
 `dimmit-down` to `bin`. Example service definitions to run `dimmitd` at boot
 are provided for each platform; install the one that matches yours:
 - Linux (systemd): `build/service_systemd.service`
-- macOS (launchd): `build/service_darwin.plist`
+- macOS (launchd): a per-user LaunchAgent. After `sudo cmake --install build`
+  installs the binaries, load the agent as your normal user (no sudo):
+
+  ```sh
+  sh build/service_darwin_install.sh
+  ```
+
+  This copies `com.schmonz.dimmitd.plist` into `~/Library/LaunchAgents/` and
+  `launchctl load -w`s it. The daemon logs to `~/Library/Logs/dimmitd.log`.
+  (In the macOS universal build the staged files live under the arch sub-build
+  dir, e.g. `build/build-x86_64/`.) To stop and remove the agent:
+
+  ```sh
+  launchctl unload -w ~/Library/LaunchAgents/com.schmonz.dimmitd.plist
+  rm ~/Library/LaunchAgents/com.schmonz.dimmitd.plist
+  ```
 - NetBSD (rc.d): `build/service_netbsd.sh`
 
 ## Configuration

@@ -155,6 +155,8 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service/service_netbsd.sh
         ${CMAKE_CURRENT_BINARY_DIR}/service_netbsd.sh @ONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service/service_darwin.plist
         ${CMAKE_CURRENT_BINARY_DIR}/service_darwin.plist @ONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service/service_darwin_install.sh
+        ${CMAKE_CURRENT_BINARY_DIR}/service_darwin_install.sh @ONLY)
 
 # ============================================================================
 # Platform-Specific Libraries
