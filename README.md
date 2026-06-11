@@ -16,17 +16,18 @@ I certainly didn't know the first thing about how to control monitor brightness 
 Build-time dependencies:
 - CMake
 - Linux: `pkg-config` and `libddcutil-dev`
-- macOS: a Command Line Tools / Xcode toolchain. On macOS &lt; 10.12 you also
-  need [`macports-legacy-support`](https://github.com/macports/macports-legacy-support)
-  (for `clock_gettime()`); install it from pkgsrc or MacPorts. The macOS
-  universal build currently drives its per-architecture sub-builds through
+- macOS: a Command Line Tools / Xcode toolchain. No third-party libraries are
+  needed — the bits missing on older macOS (`clock_gettime()` before 10.12, and
+  `IORegistryEntryCopyPath()` before 10.11) are supplied by small in-tree compat
+  shims, so the same source builds on everything from Mavericks to Tahoe. The
+  macOS universal build currently drives its per-architecture sub-builds through
   pkgsrc CMake at `/opt/pkg/bin/cmake`.
 
 Run-time dependencies:
 - Linux: `libddcutil4`
 - macOS: [Karabiner-Elements](https://karabiner-elements.pqrs.org) to map the
-  brightness keys (see [Use](#use)). On macOS &lt; 10.12 the binaries also link
-  against the `macports-legacy-support` dylib, so it must remain installed.
+  brightness keys (see [Use](#use)). Nothing else — the binaries are
+  self-contained.
 
 Then:
 ```sh
