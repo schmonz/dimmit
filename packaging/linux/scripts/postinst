@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+case "$1" in
+  configure)
+    addgroup --system i2c >/dev/null 2>&1 || groupadd -r i2c >/dev/null 2>&1 || true
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      systemctl enable --now dimmitd.service >/dev/null 2>&1 || true
+    fi
+    echo "dimmit: to use the brightness keys, add yourself to the i2c group:"
+    echo "    sudo usermod -aG i2c \"\$USER\"   # then log out and back in"
+    ;;
+esac
+exit 0

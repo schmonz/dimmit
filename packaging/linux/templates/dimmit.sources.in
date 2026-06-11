@@ -1,0 +1,6 @@
+Types: deb
+URIs: https://packages.schmonz.com/debian
+Suites: @SUITE@
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/dimmit-archive-keyring.gpg

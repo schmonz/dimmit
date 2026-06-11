@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  release-macos:
     runs-on: macos-26       # Tahoe (SDK 26.x) -- matches the toolchain we
                             # verified GREEN on real 10.9; builds both slices
     steps:
@@ -99,3 +99,51 @@ jobs:
           files: |
             dimmit-*.pkg
             latest.json
+
+  # Basic Linux .deb on plain ubuntu-latest -- a smoke test of the build+publish
+  # path. The full design (per-distro container matrix + apt repo on the VPS) is
+  # in docs/superpowers/plans/2026-06-11-linux-deb-distribution.md; this job
+  # evolves into that. build_deb.sh ships the apt source only once the signing
+  # key is committed, so for now this produces a plain .deb.
+  release-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake pkg-config libddcutil-dev dpkg-dev build-essential
+
+      - name: Build
+        run: |
+          cmake -B build-deb -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-deb
+
+      - name: Build .deb
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          sh packaging/linux/build_deb.sh build-deb "$VER" noble "dimmit_${VER}_amd64.deb"
+
+      - name: Upload build artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dimmit-deb
+          path: dimmit_*_amd64.deb
+
+      - name: Publish to GitHub Releases (tags only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dimmit_*_amd64.deb
