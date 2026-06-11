@@ -1,0 +1,94 @@
+name: release
+
+# Build the macOS universal .pkg and publish it to GitHub Releases.
+#
+# Phase 1: unsigned. Signing/notarization is a later, bolt-on step (see the
+# deferred-phases backlog).
+#
+# The spike confirmed a modern-SDK x86_64 slice targeting 10.9 runs on real
+# Mavericks once the post-10.9 symbol leaks are shimmed (clock_gettime,
+# IORegistryEntryCopyPath). The "10.9 compat guard" step below fails the build
+# if a future change reintroduces such a leak.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:        # manual runs produce an artifact, not a release
+
+jobs:
+  build:
+    runs-on: macos-26       # Tahoe (SDK 26.x) -- matches the toolchain we
+                            # verified GREEN on real 10.9; builds both slices
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The top-level build is the macOS universal wrapper: it probes the
+      # toolchain, builds the arm64 (12.0) and x86_64 (10.9) slices, and lipos
+      # them into build/universal/. Same path users build locally -- DRY.
+      - name: Build universal binaries
+        run: |
+          cmake -S . -B build
+          cmake --build build
+          lipo -info build/universal/dimmitd
+
+      - name: 10.9 compat guard (no post-10.9 symbol leaks)
+        run: |
+          slice=build/build-x86_64/dimmitd
+          fail=0
+          # Our deployment-target shims must be present...
+          for sym in _dimmit_clock_gettime _dimmit_IORegistryEntryCopyPath; do
+            if ! nm "$slice" | grep -q "T $sym\$"; then
+              echo "::error::expected shim symbol $sym not defined in $slice"; fail=1
+            fi
+          done
+          # ...and the system symbols they replace must NOT appear as
+          # (non-weak) undefined references, or dyld aborts at launch on 10.9.
+          leaked=$(nm "$slice" | grep -E ' U _(clock_gettime|IORegistryEntryCopyPath)$' || true)
+          if [ -n "$leaked" ]; then
+            echo "::error::post-10.9 symbol leaked into the x86_64 slice:"; echo "$leaked"; fail=1
+          fi
+          exit $fail
+
+      - name: Build .pkg
+        run: |
+          sh packaging/macos/build_pkg.sh build/universal "${{ steps.ver.outputs.version }}" \
+            "dimmit-${{ steps.ver.outputs.version }}.pkg"
+          pkgutil --payload-files "dimmit-${{ steps.ver.outputs.version }}.pkg" | grep -E 'sbin|/bin/|LaunchAgents'
+
+      - name: Emit machine-readable feed
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          cat > latest.json <<EOF
+          {
+            "version": "$VER",
+            "min_os": "10.9",
+            "pkg": "dimmit-$VER.pkg",
+            "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/dimmit-$VER.pkg"
+          }
+          EOF
+          cat latest.json
+
+      - name: Upload build artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dimmit-pkg
+          path: |
+            dimmit-*.pkg
+            latest.json
+
+      - name: Publish to GitHub Releases (tags only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dimmit-*.pkg
+            latest.json
