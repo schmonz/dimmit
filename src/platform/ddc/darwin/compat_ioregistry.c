@@ -5,9 +5,10 @@
 /*
  * Pre-10.11 implementation of IORegistryEntryCopyPath() in terms of the
  * long-standing IORegistryEntryGetPath(). io_string_t is a char[512] buffer;
- * the path is well under that for framebuffer entries.
+ * the path is well under that for framebuffer entries. The header renames
+ * callers' IORegistryEntryCopyPath() to this symbol; see compat_ioregistry.h.
  */
-CFStringRef IORegistryEntryCopyPath(io_registry_entry_t entry, const io_name_t plane) {
+CFStringRef dimmit_IORegistryEntryCopyPath(io_registry_entry_t entry, const io_name_t plane) {
     io_string_t path;
     if (IORegistryEntryGetPath(entry, plane, path) != KERN_SUCCESS) {
         return NULL;
