@@ -15,6 +15,11 @@ on:
     tags: ['v*']
   workflow_dispatch:        # manual runs produce an artifact, not a release
 
+# Creating the Release and uploading assets needs the GITHUB_TOKEN to have
+# write access to repo contents; the default is read-only, which 403s.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-26       # Tahoe (SDK 26.x) -- matches the toolchain we
