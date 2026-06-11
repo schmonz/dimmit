@@ -10,7 +10,15 @@ endif()
 # Check both undefined and empty list (CLion sometimes sets empty)
 list(LENGTH CMAKE_OSX_ARCHITECTURES NUM_ARCHS)
 if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
-    # Top-level universal build for macOS
+    # Top-level universal build for macOS.
+    #
+    # TODO(build): try moving this orchestration out of CMake into a thin
+    # build_universal.sh (two per-arch builds + lipo + the arm64 probe), leaving
+    # CMakeLists with a single per-arch mode and no ExternalProject. The per-arch
+    # split itself is mandatory -- arm64 builds the m1ddc/CoreDisplay backend at
+    # min 12.0 while x86_64 builds the ddcctl/IOKit backend at min 10.9 -- so a
+    # script would only relocate the two-build orchestration, not collapse it to
+    # one fat build. Deferred; the ExternalProject wrapper below works.
     project(dimmit-universal VERSION 0.1.0 LANGUAGES C OBJC)
     include(ExternalProject)
     include(GNUInstallDirs)
@@ -46,12 +54,13 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
                 -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                 -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
                 -DFORCE_COREDISPLAY=ON
-            CMAKE_COMMAND /opt/pkg/bin/cmake
-            # ExternalProject uses CMAKE_COMMAND as the build command by default,
-            # but doesn't pass the generator correctly if we override CMAKE_COMMAND.
-            # Let's specify the generator properly.
+            # Drive the sub-build with the same cmake that's running this
+            # top-level build (pkgsrc cmake on the Mavericks host, the runner's
+            # cmake in CI) -- never a hardcoded path. BUILD_COMMAND is spelled
+            # out so the sub-build's generator is invoked correctly.
+            CMAKE_COMMAND ${CMAKE_COMMAND}
             LIST_SEPARATOR |
-            BUILD_COMMAND /opt/pkg/bin/cmake --build <BINARY_DIR>
+            BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR>
             BUILD_ALWAYS 1
             INSTALL_COMMAND ""
         )
@@ -66,9 +75,9 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
             -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-        CMAKE_COMMAND /opt/pkg/bin/cmake
+        CMAKE_COMMAND ${CMAKE_COMMAND}
         LIST_SEPARATOR |
-        BUILD_COMMAND /opt/pkg/bin/cmake --build <BINARY_DIR>
+        BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR>
         BUILD_ALWAYS 1
         INSTALL_COMMAND ""
     )
