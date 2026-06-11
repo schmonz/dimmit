@@ -107,3 +107,16 @@ daemon and the clients:
 DIMMIT_SOCK=/run/dimmit.sock ./dimmitd &
 DIMMIT_SOCK=/run/dimmit.sock ./dimmit-down
 ```
+
+### Logging (macOS)
+
+When `dimmitd` runs under the LaunchAgent (or otherwise with a non-terminal
+stdout), it redirects its own output to `~/Library/Logs/dimmitd.log` — launchd
+captures nothing on its own and 10.9 has no unified log. Run interactively from
+a terminal, it leaves stdout alone. Set `DIMMIT_LOG` to redirect to a different
+file:
+```sh
+DIMMIT_LOG=/tmp/dimmitd.log /usr/local/sbin/dimmitd
+```
+On Linux the daemon logs to stdout/stderr for journald (`journalctl -u
+dimmitd`); on NetBSD the rc.d script owns redirection.
