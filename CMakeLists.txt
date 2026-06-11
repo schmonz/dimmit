@@ -353,6 +353,11 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     # Add arch-specific glue code
     if (BUILD_ARCH STREQUAL "arm64")
         target_sources(dimmitd PRIVATE src/platform/ddc/darwin/m1ddc.m)
+        # Match the vendored m1ddc lib: MRC, so a stack DisplayInfos (which holds
+        # NSString* members) is allowed (ARC forbids objects in C structs).
+        set_source_files_properties(
+            src/platform/ddc/darwin/m1ddc.m
+            PROPERTIES COMPILE_OPTIONS "-fno-objc-arc")
     elseif (BUILD_ARCH STREQUAL "x86_64")
         target_sources(dimmitd PRIVATE src/platform/ddc/darwin/ddcctl.c)
         # This file also includes ddcctl's DDC.h, so it needs the same

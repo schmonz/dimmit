@@ -19,12 +19,30 @@ static int is_supported_feature(uint8_t feature_code) {
 }
 
 DDC_Status ddc_arch_open(DDC_Display_Ref dref, int flags, DDC_Display_Handle *handle_out) {
-    (void)dref;
     (void)flags;
 
-    if (!handle_out) return DDC_ERROR;
+    if (!dref || !handle_out) return DDC_ERROR;
 
-    IOAVServiceRef svc = getDefaultDisplayAVService();
+    /* Resolve the AV service for THIS display, not IOAVServiceCreate()'s default.
+     * On a clamshell laptop driving an external display, the default service is
+     * the internal panel's -- DDC to it returns garbage and writes fail. Match
+     * our chosen display by CGDirectDisplayID, then ask m1ddc's IORegistry
+     * walker for that display's external DCPAVServiceProxy. */
+    IOAVServiceRef svc = NULL;
+    DisplayInfos infos[MAX_DISPLAYS];
+    CGDisplayCount n = getOnlineDisplayInfos(infos);
+    for (CGDisplayCount i = 0; i < n; i++) {
+        if ((uint32_t)infos[i].id == dref->display_id) {
+            svc = getDisplayAVService(&infos[i]);
+            break;
+        }
+    }
+
+    /* Fall back to the default service only if per-display resolution failed
+     * (e.g. a single-display desktop where no location match is needed). */
+    if (!svc) {
+        svc = getDefaultDisplayAVService();
+    }
     if (!svc) return DDC_ERROR;
 
     DDC_Display_Handle h = (DDC_Display_Handle)calloc(1, sizeof(*h));
@@ -53,13 +71,23 @@ DDC_Status ddc_arch_get_vcp(DDC_Display_Handle h, uint8_t feature_code, DDC_Non_
     if (!h || !h->avService || !value_out) return DDC_ERROR;
     if (!is_supported_feature(feature_code)) return DDC_ERROR;
 
+    /* A DDC "get VCP" is a two-step transaction: first WRITE the read request
+     * to the display, then READ its reply into a fresh packet. Skipping the
+     * write leaves the display with nothing to answer, so it returns a DDC Null
+     * message (6e 80 be ...) that parses into garbage (matches m1ddc.m's
+     * readingOperation()). */
     DDCPacket packet = createDDCPacket((UInt8)feature_code);
 
     prepareDDCRead(packet.data);
-    IOReturn rc = performDDCRead(h->avService, &packet);
+    IOReturn rc = performDDCWrite(h->avService, &packet);
     if (rc != kIOReturnSuccess) return DDC_ERROR;
 
-    DDCValue v = convertI2CtoDDC((char *)packet.data);
+    DDCPacket reply = {};
+    reply.inputAddr = packet.inputAddr;
+    rc = performDDCRead(h->avService, &reply);
+    if (rc != kIOReturnSuccess) return DDC_ERROR;
+
+    DDCValue v = convertI2CtoDDC((char *)reply.data);
 
     /* Map into your existing non-table VCP struct (mh ml sh sl) */
     uint16_t cur = (v.curValue < 0) ? 0 : (uint16_t)v.curValue;

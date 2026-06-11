@@ -2,6 +2,13 @@
 
 ## Platform: macOS
 
+- Re-add gated DDC wire-level debug tracing. A `DIMMIT_DDC_DEBUG` env-gated
+      dump (online display list with builtin flag in `darwin.c`; per-display AV
+      service resolution, raw 12-byte read replies, parsed cur/max, and write
+      results in `m1ddc.m`) was invaluable for diagnosing the clamshell
+      external-display read returning a DDC Null message (`6e 80 be ...`). It was
+      removed to keep the committed code clean; reintroduce it behind the logging
+      subsystem (or the same env gate) for the next Apple Silicon DDC quirk.
 - Watch for a framebuffer-port change in real use. The x86_64 backend now
       re-resolves the IOFramebuffer port per command (defensive) and logs a line
       if the port ever differs between commands. The originally-feared "writes
