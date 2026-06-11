@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 
 if(APPLE)
-    project(dimmit LANGUAGES C OBJC)
+    project(dimmit VERSION 0.1.0 LANGUAGES C OBJC)
 else()
-    project(dimmit LANGUAGES C)
+    project(dimmit VERSION 0.1.0 LANGUAGES C)
 endif()
 
 # Detect if we're doing a macOS universal build
@@ -11,7 +11,7 @@ endif()
 list(LENGTH CMAKE_OSX_ARCHITECTURES NUM_ARCHS)
 if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     # Top-level universal build for macOS
-    project(dimmit-universal LANGUAGES C OBJC)
+    project(dimmit-universal VERSION 0.1.0 LANGUAGES C OBJC)
     include(ExternalProject)
     include(GNUInstallDirs)
 
@@ -116,7 +116,7 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     
     return()
 elseif(APPLE)
-    project(dimmit LANGUAGES C OBJC)
+    project(dimmit VERSION 0.1.0 LANGUAGES C OBJC)
 endif()
 
 # ============================================================================
@@ -127,7 +127,7 @@ endif()
 # called project(... C OBJC) at line 78; re-declaring with C-only here would
 # clobber the OBJC language and break the .m sources, so guard it.
 if (NOT APPLE)
-    project(dimmit LANGUAGES C)
+    project(dimmit VERSION 0.1.0 LANGUAGES C)
 endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
