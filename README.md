@@ -19,15 +19,19 @@ Build-time dependencies:
 - macOS: a Command Line Tools / Xcode toolchain. No third-party libraries are
   needed — the bits missing on older macOS (`clock_gettime()` before 10.12, and
   `IORegistryEntryCopyPath()` before 10.11) are supplied by small in-tree compat
-  shims, so the same source builds on everything from Mavericks to Tahoe. The
-  macOS universal build currently drives its per-architecture sub-builds through
-  pkgsrc CMake at `/opt/pkg/bin/cmake`.
+  shims, so the same source builds on everything from Mavericks to Tahoe.
 
 Run-time dependencies:
 - Linux: `libddcutil4`
 - macOS: [Karabiner-Elements](https://karabiner-elements.pqrs.org) to map the
   brightness keys (see [Use](#use)). Nothing else — the binaries are
   self-contained.
+
+This repository vendors `ddcctl` and `m1ddc` as git submodules. Clone with
+`git clone --recurse-submodules`, or initialize them in an existing clone:
+```sh
+git submodule update --init --recursive
+```
 
 Then:
 ```sh

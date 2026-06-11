@@ -21,6 +21,8 @@ jobs:
                             # verified GREEN on real 10.9; builds both slices
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # vendored ddcctl + m1ddc are git submodules
 
       - name: Determine version
         id: ver
