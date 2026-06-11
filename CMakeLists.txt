@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
 
+# The project VERSION below is a non-meaningful placeholder. Releases are
+# versioned by git tag (see .github/workflows/release.yml), which sets the .pkg
+# and latest.json version. Revisit if/when we adopt a real versioning scheme.
 if(APPLE)
-    project(dimmit VERSION 0.1.0 LANGUAGES C OBJC)
+    project(dimmit VERSION 0.0.0 LANGUAGES C OBJC)
 else()
-    project(dimmit VERSION 0.1.0 LANGUAGES C)
+    project(dimmit VERSION 0.0.0 LANGUAGES C)
 endif()
 
 # Detect if we're doing a macOS universal build
@@ -19,7 +22,7 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     # min 12.0 while x86_64 builds the ddcctl/IOKit backend at min 10.9 -- so a
     # script would only relocate the two-build orchestration, not collapse it to
     # one fat build. Deferred; the ExternalProject wrapper below works.
-    project(dimmit-universal VERSION 0.1.0 LANGUAGES C OBJC)
+    project(dimmit-universal VERSION 0.0.0 LANGUAGES C OBJC)
     include(ExternalProject)
     include(GNUInstallDirs)
 
@@ -125,7 +128,7 @@ if (APPLE AND (NOT DEFINED CMAKE_OSX_ARCHITECTURES OR NUM_ARCHS EQUAL 0))
     
     return()
 elseif(APPLE)
-    project(dimmit VERSION 0.1.0 LANGUAGES C OBJC)
+    project(dimmit VERSION 0.0.0 LANGUAGES C OBJC)
 endif()
 
 # ============================================================================
@@ -136,7 +139,7 @@ endif()
 # called project(... C OBJC) at line 78; re-declaring with C-only here would
 # clobber the OBJC language and break the .m sources, so guard it.
 if (NOT APPLE)
-    project(dimmit VERSION 0.1.0 LANGUAGES C)
+    project(dimmit VERSION 0.0.0 LANGUAGES C)
 endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
