@@ -275,34 +275,11 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         list(APPEND PLATFORM_LIBS "-framework CoreDisplay")
     endif()
 
-    # macOS < 10.12 has no clock_gettime() (used by dimmitd.c). Lean on
-    # macports-legacy-support (pkgsrc/MacPorts) for the missing libc pieces.
-    include(CheckSymbolExists)
-    check_symbol_exists(clock_gettime "time.h" HAVE_CLOCK_GETTIME)
-    if (NOT HAVE_CLOCK_GETTIME)
-        find_path(LEGACYSUPPORT_INCLUDE_DIR
-            NAMES MacportsLegacySupport.h
-            PATH_SUFFIXES LegacySupport
-            HINTS /opt/pkg/include /usr/pkg/include /opt/local/include)
-        # Require the static archive (libMacportsLegacySupport.a) so the x86_64
-        # binary carries no runtime dependency on /opt/pkg -- needed for a
-        # relocatable .pkg. Constrain the search to .a only; the .dylib is not
-        # acceptable, so a missing archive is a hard configure error.
-        set(_dimmit_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
-        set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-        find_library(LEGACYSUPPORT_LIB
-            NAMES MacportsLegacySupport
-            HINTS /opt/pkg/lib /usr/pkg/lib /opt/local/lib)
-        set(CMAKE_FIND_LIBRARY_SUFFIXES ${_dimmit_saved_suffixes})
-        if (NOT LEGACYSUPPORT_INCLUDE_DIR OR NOT LEGACYSUPPORT_LIB)
-            message(FATAL_ERROR
-                "This macOS lacks clock_gettime() and the static "
-                "macports-legacy-support archive (libMacportsLegacySupport.a) "
-                "was not found. Install it (pkgsrc: macports-legacy-support) "
-                "or build on macOS 10.12+.")
-        endif()
-        message(STATUS "Using macports-legacy-support: ${LEGACYSUPPORT_LIB}")
-    endif()
+    # macOS < 10.12 has no clock_gettime() (used by dimmitd.c). We supply our
+    # own (src/platform/compat/clock_gettime.c), self-gated on the deployment
+    # target -- see that header. This replaces macports-legacy-support, whose
+    # clock_gettime gates on the SDK version and so never activates on a
+    # newer-SDK build targeting <10.12 (e.g. a Tahoe host building for 10.9).
 endif()
 
 # ============================================================================
@@ -326,11 +303,15 @@ target_include_directories(dimmitd PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(dimmitd PRIVATE Threads::Threads ${PLATFORM_LIBS})
 
-# macports-legacy-support for clock_gettime() etc. on macOS < 10.12.
-# Header dir goes BEFORE the system include path so its overrides win.
-if (LEGACYSUPPORT_INCLUDE_DIR)
-    target_include_directories(dimmitd BEFORE PRIVATE ${LEGACYSUPPORT_INCLUDE_DIR})
-    target_link_libraries(dimmitd PRIVATE ${LEGACYSUPPORT_LIB})
+# clock_gettime() compat for macOS < 10.12. The source self-gates on the
+# deployment target (no-op at >= 10.12). The header is force-included so its
+# rename takes effect before dimmitd.c sees the system <time.h>; see
+# src/platform/compat/clock_gettime.h.
+if (APPLE)
+    target_sources(dimmitd PRIVATE src/platform/compat/clock_gettime.c)
+    target_compile_options(dimmitd PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:-include>
+        $<$<COMPILE_LANGUAGE:C>:${CMAKE_CURRENT_SOURCE_DIR}/src/platform/compat/clock_gettime.h>)
 endif()
 
 # ============================================================================
