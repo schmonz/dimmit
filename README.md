@@ -72,6 +72,37 @@ If it works, great! Map your brightness keys to `dimmit-up` and `dimmit-down`.
 
 ## Install
 
+### macOS: the released `.pkg` (recommended)
+
+Download `dimmit-<version>.pkg` from the
+[Releases page](https://github.com/schmonz/dimmit/releases) and double-click it
+(or `sudo installer -pkg dimmit-<version>.pkg -target /`). One fat binary covers
+Intel (down to 10.9 Mavericks) and Apple Silicon. It installs `dimmitd` to
+`/usr/local/sbin`, `dimmit-up` / `dimmit-down` to `/usr/local/bin`, and a
+LaunchAgent at `/Library/LaunchAgents/com.schmonz.dimmitd.plist` that launchd
+starts in your session at login (the installer also starts it immediately). The
+daemon logs to `~/Library/Logs/dimmitd.log`. Re-installing a newer `.pkg` is
+safe: it unloads the running agent, swaps the binaries, and reloads.
+
+You still need [Karabiner-Elements](https://karabiner-elements.pqrs.org) to map
+the brightness keys (see [Use](#use)).
+
+> Phase 1 packages are **unsigned**. On modern macOS, clear the quarantine
+> first: `xattr -dr com.apple.quarantine dimmit-<version>.pkg`
+
+**Uninstalling:** macOS `.pkg`s have no built-in uninstaller — removing the
+installed files and forgetting the receipt is the standard approach. The receipt
+records exactly what landed (`pkgutil --files com.schmonz.dimmit` lists it), so
+for dimmit that's:
+```sh
+launchctl unload -w /Library/LaunchAgents/com.schmonz.dimmitd.plist 2>/dev/null || true
+sudo rm -f /usr/local/sbin/dimmitd /usr/local/bin/dimmit-up /usr/local/bin/dimmit-down \
+           /Library/LaunchAgents/com.schmonz.dimmitd.plist
+sudo pkgutil --forget com.schmonz.dimmit
+```
+
+### From source (all platforms)
+
 ```sh
 sudo cmake --install build
 ```
