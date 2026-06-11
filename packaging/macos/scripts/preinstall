@@ -1,0 +1,11 @@
+#!/bin/sh
+# Unload any running instance before we overwrite files. Best-effort.
+set -e
+PLIST=/Library/LaunchAgents/com.schmonz.dimmitd.plist
+CONSOLE_UID=$(stat -f%Su /dev/console 2>/dev/null | xargs id -u 2>/dev/null || echo "")
+if [ -f "$PLIST" ] && [ -n "$CONSOLE_UID" ]; then
+    # 10.10+: target the user's GUI domain. On 10.9 this errors harmlessly.
+    launchctl asuser "$CONSOLE_UID" launchctl unload -w "$PLIST" 2>/dev/null || \
+      launchctl unload -w "$PLIST" 2>/dev/null || true
+fi
+exit 0

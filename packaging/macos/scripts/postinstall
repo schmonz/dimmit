@@ -1,0 +1,11 @@
+#!/bin/sh
+# launchd auto-loads /Library/LaunchAgents/* at the next login. Also try to
+# load it into the current GUI session now, best-effort, across versions.
+set -e
+PLIST=/Library/LaunchAgents/com.schmonz.dimmitd.plist
+CONSOLE_UID=$(stat -f%Su /dev/console 2>/dev/null | xargs id -u 2>/dev/null || echo "")
+if [ -n "$CONSOLE_UID" ]; then
+    launchctl asuser "$CONSOLE_UID" launchctl load -w "$PLIST" 2>/dev/null || \
+      launchctl load -w "$PLIST" 2>/dev/null || true
+fi
+exit 0
