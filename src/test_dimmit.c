@@ -115,6 +115,19 @@ static void test_dimmer_commit_and_settled(void) {
     CHECK(dimmer_due(&d, edge, &target) == 0);
 }
 
+static void test_dimmer_fraction(void) {
+    dimmer_t d;
+    dimmer_init(&d, 50, 90);
+    CHECK(dimmer_max(&d) == 90);
+
+    /* fraction -> delta against a display range; never a no-op step */
+    CHECK(dimmer_delta_for_fraction(100,  1.0/16.0) == 6);
+    CHECK(dimmer_delta_for_fraction(100, -1.0/16.0) == -6);
+    CHECK(dimmer_delta_for_fraction(100,  1.0/64.0) == 2);
+    CHECK(dimmer_delta_for_fraction(4,    1.0/64.0) == 1);   /* rounds to 0 -> bumped to 1 */
+    CHECK(dimmer_delta_for_fraction(4,   -1.0/64.0) == -1);
+}
+
 /* End to end: a client writes a command over a real socket, the daemon's
  * read_command() reads and parses it, and the resulting delta is driven through
  * the dimmer pipeline against the in-memory mock display -- so a request lands
@@ -195,6 +208,7 @@ int main(void) {
     test_dimmer_due_debounce();
     test_dimmer_not_due_without_pending();
     test_dimmer_commit_and_settled();
+    test_dimmer_fraction();
     test_command_loop_end_to_end();
     test_authorization();
     test_ddc_roundtrip();

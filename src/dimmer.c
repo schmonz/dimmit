@@ -1,5 +1,7 @@
 #include "dimmer.h"
 
+#include <math.h>
+
 /* Clamp a brightness value into [0, max]. */
 static int clamp_brightness(int value, int max) {
     if (value < 0) return 0;
@@ -48,4 +50,15 @@ void dimmer_commit(dimmer_t *d, int applied) {
 
 void dimmer_settled(dimmer_t *d) {
     d->pending_delta = 0;
+}
+
+int dimmer_max(const dimmer_t *d) {
+    return d->max;
+}
+
+int dimmer_delta_for_fraction(int max, double fraction) {
+    int delta = (int)lround((double)max * fraction);
+    /* Never let a nonzero fraction collapse to a no-op step. */
+    if (delta == 0) delta = (fraction > 0) ? 1 : (fraction < 0 ? -1 : 0);
+    return delta;
 }

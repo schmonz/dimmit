@@ -36,4 +36,12 @@ void dimmer_commit(dimmer_t *d, int applied);
  * not the write succeeded -- matching the daemon's existing semantics. */
 void dimmer_settled(dimmer_t *d);
 
+/* The display's maximum brightness (for input backends that step by a fraction
+ * of the range). */
+int dimmer_max(const dimmer_t *d);
+
+/* Convert a signed fraction of the full range into an integer delta, rounding
+ * to nearest; a nonzero fraction never collapses to a no-op (0) step. */
+int dimmer_delta_for_fraction(int max, double fraction);
+
 #endif /* DIMMER_H */
