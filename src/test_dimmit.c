@@ -1,5 +1,5 @@
 /* Unit tests for the daemon's logic, exercised through the modules it now links
- * normally: the pure brightness/debounce state machine (dimmer.{c,h}), the
+ * normally: the pure brightness state machine (dimmer.{c,h}), the
  * command parser (command.{c,h}), the ddc abstraction driven by the in-memory
  * mock backend (platform/ddc/in_memory_mock.c), and the access-control mock
  * (platform/access-control/mock.c). No #include of dimmitd.c, and no real
@@ -36,83 +36,98 @@ static void test_parse_command(void) {
 
 static void test_dimmer_accumulates(void) {
     dimmer_t d;
-    struct timeval t = {100, 0};
 
     dimmer_init(&d, 50, 100);
-    dimmer_adjust(&d, STEP, t);
+    dimmer_adjust(&d, STEP);
     CHECK(d.pending_delta == STEP);
-    dimmer_adjust(&d, STEP, t);
+    dimmer_adjust(&d, STEP);
     CHECK(d.pending_delta == 2 * STEP);
 }
 
 static void test_dimmer_clamps(void) {
     dimmer_t d;
-    struct timeval t = {100, 0};
 
     /* A step that would overshoot the ceiling lands exactly on it. */
     dimmer_init(&d, 98, 100);
-    dimmer_adjust(&d, STEP, t);
+    dimmer_adjust(&d, STEP);
     CHECK(d.pending_delta == 2);   /* target 100, not 103 */
-    dimmer_adjust(&d, STEP, t);
+    dimmer_adjust(&d, STEP);
     CHECK(d.pending_delta == 2);   /* already pinned at 100 */
 
     /* Same for the floor. */
     dimmer_init(&d, 3, 100);
-    dimmer_adjust(&d, -STEP, t);
+    dimmer_adjust(&d, -STEP);
     CHECK(d.pending_delta == -3);  /* target 0, not -2 */
-    dimmer_adjust(&d, -STEP, t);
+    dimmer_adjust(&d, -STEP);
     CHECK(d.pending_delta == -3);
 }
 
-static void test_dimmer_due_debounce(void) {
+static void test_dimmer_due(void) {
     dimmer_t d;
-    struct timeval t0 = {100, 0};
     int target = -1;
 
+    /* Due as soon as there's a pending delta -- no time gate (leading edge). */
     dimmer_init(&d, 50, 100);
-    dimmer_adjust(&d, STEP, t0);
-
-    struct timeval soon = {100, 100000};  /* +100 ms: not yet */
-    CHECK(dimmer_due(&d, soon, &target) == 0);
-
-    struct timeval edge = {100, 200000};  /* +200 ms: due */
-    CHECK(dimmer_due(&d, edge, &target) == 1);
+    dimmer_adjust(&d, STEP);
+    CHECK(dimmer_due(&d, &target) == 1);
     CHECK(target == 55);
-
-    /* Spanning a whole-second boundary still measures 200 ms. */
-    dimmer_init(&d, 50, 100);
-    struct timeval a = {100, 900000};
-    dimmer_adjust(&d, STEP, a);
-    struct timeval b = {101, 100000};
-    CHECK(dimmer_due(&d, b, &target) == 1);
 }
 
 static void test_dimmer_not_due_without_pending(void) {
     dimmer_t d;
-    struct timeval late = {200, 0};
     int target = -1;
 
     dimmer_init(&d, 50, 100);   /* nothing pending */
-    CHECK(dimmer_due(&d, late, &target) == 0);
+    CHECK(dimmer_due(&d, &target) == 0);
 }
 
 static void test_dimmer_commit_and_settled(void) {
     dimmer_t d;
-    struct timeval t0 = {100, 0};
-    struct timeval edge = {100, 200000};
     int target = -1;
 
     dimmer_init(&d, 50, 100);
-    dimmer_adjust(&d, STEP, t0);
-    CHECK(dimmer_due(&d, edge, &target) == 1);
+    dimmer_adjust(&d, STEP);
+    CHECK(dimmer_due(&d, &target) == 1);
 
     dimmer_commit(&d, target);
     CHECK(d.current == 55);
-    dimmer_settled(&d);
-    CHECK(d.pending_delta == 0);
+    CHECK(d.pending_delta == 0);   /* commit subtracts the applied step */
 
     /* Consumed: no longer due. */
-    CHECK(dimmer_due(&d, edge, &target) == 0);
+    CHECK(dimmer_due(&d, &target) == 0);
+
+    /* settled() abandons a pending batch (used on write failure). */
+    dimmer_adjust(&d, -STEP);
+    CHECK(d.pending_delta == -STEP);
+    dimmer_settled(&d);
+    CHECK(d.pending_delta == 0);
+    CHECK(dimmer_due(&d, &target) == 0);
+}
+
+/* Leading edge: the first press is due immediately, and presses that arrive
+ * while a write is in flight (between dimmer_due and dimmer_commit) are not
+ * lost -- commit preserves them for the next cycle. */
+static void test_dimmer_coalesces_during_write(void) {
+    dimmer_t d;
+    int target = -1;
+
+    dimmer_init(&d, 100, 100);
+    dimmer_adjust(&d, -STEP);                 /* press 1 */
+    CHECK(dimmer_due(&d, &target) == 1);
+    CHECK(target == 95);                      /* worker captures 95, starts write */
+
+    dimmer_adjust(&d, -STEP);                 /* press 2 lands mid-write */
+
+    dimmer_commit(&d, target);                /* write of 95 finished */
+    CHECK(d.current == 95);
+    CHECK(d.pending_delta == -STEP);          /* press 2 survived */
+
+    CHECK(dimmer_due(&d, &target) == 1);
+    CHECK(target == 90);                      /* next cycle applies press 2 */
+    dimmer_commit(&d, target);
+    CHECK(d.current == 90);
+    CHECK(d.pending_delta == 0);
+    CHECK(dimmer_due(&d, &target) == 0);
 }
 
 static void test_dimmer_fraction(void) {
@@ -144,7 +159,7 @@ static void test_command_loop_end_to_end(void) {
     CHECK(delta == -STEP);
 
     /* Open the mock display and run the parsed command all the way through the
-     * dimmer pipeline as the worker would, just past the debounce window. */
+     * dimmer pipeline as the worker would. */
     ddc_handle_t *h = ddc_open_display();
     CHECK(h != NULL);
     if (h) {
@@ -154,17 +169,14 @@ static void test_command_loop_end_to_end(void) {
         dimmer_t d;
         dimmer_init(&d, cur, max);
 
-        struct timeval t0 = {500, 0};
-        dimmer_adjust(&d, delta, t0);
+        dimmer_adjust(&d, delta);
 
-        struct timeval edge = {500, 200000};  /* +200 ms: debounce satisfied */
         int target = -1;
-        CHECK(dimmer_due(&d, edge, &target) == 1);
+        CHECK(dimmer_due(&d, &target) == 1);
         CHECK(target == 45);
 
         CHECK(ddc_set_brightness(h, target) == 0);
         dimmer_commit(&d, target);
-        dimmer_settled(&d);
 
         CHECK(ddc_get_brightness(h, &cur, &max) == 0);
         CHECK(cur == 45);  /* the simulated display actually moved */
@@ -205,9 +217,10 @@ int main(void) {
     test_parse_command();
     test_dimmer_accumulates();
     test_dimmer_clamps();
-    test_dimmer_due_debounce();
+    test_dimmer_due();
     test_dimmer_not_due_without_pending();
     test_dimmer_commit_and_settled();
+    test_dimmer_coalesces_during_write();
     test_dimmer_fraction();
     test_command_loop_end_to_end();
     test_authorization();

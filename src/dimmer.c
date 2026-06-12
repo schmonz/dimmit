@@ -9,22 +9,13 @@ static int clamp_brightness(int value, int max) {
     return value;
 }
 
-/* Whole milliseconds elapsed from a to b. */
-static long elapsed_ms(struct timeval a, struct timeval b) {
-    return (b.tv_sec - a.tv_sec) * 1000 + (b.tv_usec - a.tv_usec) / 1000;
-}
-
 void dimmer_init(dimmer_t *d, int current, int max) {
     d->current = current;
     d->max = max;
     d->pending_delta = 0;
-    d->last_cmd.tv_sec = 0;
-    d->last_cmd.tv_usec = 0;
 }
 
-void dimmer_adjust(dimmer_t *d, int delta, struct timeval now) {
-    d->last_cmd = now;
-
+void dimmer_adjust(dimmer_t *d, int delta) {
     /* Clamp the pending target into [0, max] so a step that would overshoot a
      * boundary still moves to the boundary (e.g. 3 - 5 -> 0, 98 + 5 -> 100)
      * rather than being rejected, and so holding a key can't accumulate a
@@ -33,8 +24,7 @@ void dimmer_adjust(dimmer_t *d, int delta, struct timeval now) {
     d->pending_delta = projected - d->current;
 }
 
-int dimmer_due(const dimmer_t *d, struct timeval now, int *target_out) {
-    if (elapsed_ms(d->last_cmd, now) < DIMMER_DEBOUNCE_MS) return 0;
+int dimmer_due(const dimmer_t *d, int *target_out) {
     if (d->pending_delta == 0) return 0;
 
     int target = clamp_brightness(d->current + d->pending_delta, d->max);
@@ -45,6 +35,9 @@ int dimmer_due(const dimmer_t *d, struct timeval now, int *target_out) {
 }
 
 void dimmer_commit(dimmer_t *d, int applied) {
+    /* Subtract only what we actually applied; deltas accumulated during the
+     * (slow, lock-released) write stay pending for the next cycle. */
+    d->pending_delta -= (applied - d->current);
     d->current = applied;
 }
 

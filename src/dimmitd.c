@@ -23,6 +23,11 @@
 
 #define ACCEPT_BACKLOG 5
 
+/* The worker blocks on the condvar until a press signals it; this timeout is
+ * only a periodic wakeup so shutdown (running=0) is noticed promptly. It does
+ * not gate brightness latency -- presses wake the worker immediately. */
+#define WORKER_POLL_MS 250
+
 static const char* get_sock_path(void) {
     const char *path = getenv("DIMMIT_SOCK");
     return path ? path : DIMMIT_SOCK_DEFAULT;
@@ -75,44 +80,42 @@ static int do_set_brightness(int value) {
 }
 
 static void* brightness_worker(void* arg) {
-    struct timespec ts;
+    (void)arg;
 
+    pthread_mutex_lock(&lock);
     while (running) {
-        pthread_mutex_lock(&lock);
+        int target;
+        if (dimmer_due(&dimmer, &target)) {
+            /* Write with the lock released (it's slow). Presses that land during
+             * the write accumulate into pending_delta; the loop drains them on
+             * the next iteration before ever going back to wait. */
+            pthread_mutex_unlock(&lock);
+            int ok = do_set_brightness(target);
+            pthread_mutex_lock(&lock);
+            if (ok == 0)
+                dimmer_commit(&dimmer, target);  /* keeps deltas that arrived mid-write */
+            else
+                dimmer_settled(&dimmer);         /* abandon the batch on failure */
+            continue;
+        }
 
+        struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_nsec += DIMMER_DEBOUNCE_MS * 1000000L;
+        ts.tv_nsec += WORKER_POLL_MS * 1000000L;
         if (ts.tv_nsec >= 1000000000L) {
             ts.tv_sec++;
             ts.tv_nsec -= 1000000000L;
         }
-
         pthread_cond_timedwait(&cond, &lock, &ts);
-
-        struct timeval now;
-        gettimeofday(&now, NULL);
-
-        int target;
-        if (dimmer_due(&dimmer, now, &target)) {
-            pthread_mutex_unlock(&lock);
-            int ok = do_set_brightness(target);
-            pthread_mutex_lock(&lock);
-            if (ok == 0) dimmer_commit(&dimmer, target);
-            dimmer_settled(&dimmer);
-        }
-
-        pthread_mutex_unlock(&lock);
     }
+    pthread_mutex_unlock(&lock);
 
     return NULL;
 }
 
 static void adjust_brightness(int delta) {
-    struct timeval now;
-    gettimeofday(&now, NULL);
-
     pthread_mutex_lock(&lock);
-    dimmer_adjust(&dimmer, delta, now);
+    dimmer_adjust(&dimmer, delta);
     pthread_cond_signal(&cond);
     pthread_mutex_unlock(&lock);
 }

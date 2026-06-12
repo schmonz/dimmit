@@ -1,39 +1,40 @@
 #ifndef DIMMER_H
 #define DIMMER_H
 
-#include <sys/time.h>
-
-/* Pure brightness/debounce state machine. No sockets, threads, stdio, or DDC:
- * the daemon owns those and drives this with an externally supplied clock
- * (every call that needs the time takes a `struct timeval now`), so the logic
- * is deterministically testable without real sleeps or the worker thread. */
-
-#define DIMMER_DEBOUNCE_MS 200
+/* Pure brightness state machine. No sockets, threads, stdio, DDC, or clock:
+ * the daemon owns those and drives this, so the logic is deterministically
+ * testable without real sleeps or the worker thread.
+ *
+ * There is no time-based debounce. The daemon's single worker writes to DDC
+ * synchronously (a slow, self-rate-limiting bus), so presses that arrive while
+ * a write is in flight accumulate into pending_delta and are coalesced into the
+ * next write -- leading-edge response with natural backpressure, no timer. */
 
 typedef struct {
     int current;             /* last-applied brightness */
     int max;                 /* display maximum */
     int pending_delta;       /* accumulated, clamp-projected, not yet applied */
-    struct timeval last_cmd; /* time of the most recent adjust */
 } dimmer_t;
 
 /* Initialize with the display's current/max brightness and no pending change. */
 void dimmer_init(dimmer_t *d, int current, int max);
 
-/* Record a command at time `now`: accumulate `delta` (clamp-projected into
- * [0, max] so holding a key can't run past a boundary) and stamp last_cmd. */
-void dimmer_adjust(dimmer_t *d, int delta, struct timeval now);
+/* Accumulate `delta` into the pending change (clamp-projected into [0, max] so
+ * holding a key can't run past a boundary). */
+void dimmer_adjust(dimmer_t *d, int delta);
 
 /* Pure: is a write due? Returns 1 and sets *target_out to the clamped target
- * when the debounce window has elapsed since last_cmd, a delta is pending, and
- * the target differs from current; otherwise returns 0. Does not mutate. */
-int dimmer_due(const dimmer_t *d, struct timeval now, int *target_out);
+ * when a delta is pending and the target differs from current; else 0. Does
+ * not mutate. */
+int dimmer_due(const dimmer_t *d, int *target_out);
 
-/* Record a successfully applied brightness (call only after a successful write). */
+/* Record a successfully applied brightness (call only after a successful write).
+ * Subtracts just the applied step from pending_delta, so any presses that landed
+ * during the write are preserved for the next cycle. */
 void dimmer_commit(dimmer_t *d, int applied);
 
-/* Clear the consumed pending delta. Called after every due cycle, whether or
- * not the write succeeded -- matching the daemon's existing semantics. */
+/* Drop the pending delta without applying it. Called when a write fails, to
+ * abandon the batch rather than retry forever. */
 void dimmer_settled(dimmer_t *d);
 
 /* The display's maximum brightness (for input backends that step by a fraction
