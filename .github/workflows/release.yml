@@ -9,6 +9,14 @@ name: release
 # Mavericks once the post-10.9 symbol leaks are shimmed (clock_gettime,
 # IORegistryEntryCopyPath). The "10.9 compat guard" step below fails the build
 # if a future change reintroduces such a leak.
+#
+# RELEASE INVARIANT: a release must contain EVERY artifact we ship -- never a
+# partial one. The build jobs only upload workflow artifacts; the single
+# `publish` job is the only thing that writes to GitHub Releases, and it
+# `needs` every build job, so any build failure skips publishing entirely.
+# When you add a new artifact-producing job, you MUST add it to `publish`'s
+# `needs:` list -- there is no "depend on all jobs" in Actions, so a forgotten
+# entry silently lets a release ship without that artifact.
 
 on:
   push:
@@ -92,14 +100,6 @@ jobs:
             dimmit-*.pkg
             latest.json
 
-      - name: Publish to GitHub Releases (tags only)
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dimmit-*.pkg
-            latest.json
-
   # Basic Linux .deb on plain ubuntu-latest -- a smoke test of the build+publish
   # path. The full design (per-distro container matrix + apt repo on the VPS) is
   # in docs/superpowers/plans/2026-06-11-linux-deb-distribution.md; this job
@@ -142,8 +142,27 @@ jobs:
           name: dimmit-deb
           path: dimmit_*_amd64.deb
 
-      - name: Publish to GitHub Releases (tags only)
-        if: github.ref_type == 'tag'
+  # All-or-nothing publish: this is the ONLY job that touches GitHub Releases,
+  # and it `needs` every artifact-producing build job. GitHub runs a `needs`
+  # job only when all of its dependencies succeed, so a failure in ANY build
+  # skips this job and no release is created -- we never ship a release that is
+  # missing an artifact we're counting on. All files are uploaded in a single
+  # action-gh-release call, so the release appears atomically and complete.
+  publish:
+    needs: [release-macos, release-linux]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true   # flatten every artifact into dist/
+
+      - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          files: dimmit_*_amd64.deb
+          files: |
+            dist/dimmit-*.pkg
+            dist/dimmit_*_amd64.deb
+            dist/latest.json
