@@ -383,6 +383,15 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 
     target_link_libraries(dimmitd PRIVATE ${DDC_ARCH_LIB})
 
+    # Dead-code stripping. Static archives link at object-file granularity, so
+    # unused functions riding in a .o we *do* use get pulled in (e.g. ddcctl's
+    # EDID self-test and its alternate IOFramebuffer matcher arrive with
+    # DDC.c.o). clang emits .subsections_via_symbols on Mach-O, so ld64's
+    # -dead_strip can drop those unreachable atoms -- and the IOKit/CF symbol
+    # imports only they referenced -- from the shipped binary. Reachable code is
+    # safe by construction. (Don't add -force_load/-all_load, which defeat this.)
+    target_link_options(dimmitd PRIVATE -Wl,-dead_strip)
+
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(dimmitd PRIVATE ${DDCUTIL_INCLUDE_DIRS})
     target_compile_options(dimmitd PRIVATE ${DDCUTIL_CFLAGS_OTHER})

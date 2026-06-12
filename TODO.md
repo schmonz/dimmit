@@ -36,7 +36,6 @@
 ## Platform: Linux
 
 - Stop needing `root`?
-- Vendor [libddcutil.a](https://github.com/rockowitz/ddcutil) for consistency?
 - Publish easy-update system packages through OpenBuildService
 
 ## Platform: NetBSD
@@ -77,13 +76,8 @@ Known constraints to design around:
       hosted runner exists for it).
 - Collect the per-target artifacts into a single release (ties into the
       `.pkg` and system-package items above).
-- Link only the vendored code we actually use, on every platform. Static
-      archives link at object-file granularity, so an unused function riding in
-      a `.o` we do use still gets pulled in (e.g. ddcctl's matcher/EDID code
-      comes in with `DDC.c.o`). Enable dead-code stripping to drop the rest:
-      `-Wl,-dead_strip` on macOS (ld64), and `-ffunction-sections
-      -fdata-sections` + `-Wl,--gc-sections` on GNU/BSD ld. Avoid
-      `-force_load`/`--whole-archive`, which would defeat this.
+- Link only the vendored code we actually use. Done on macOS, moot
+  on Linux, open for NetBSD.
 
 ## Moar goodies
 
