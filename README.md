@@ -23,9 +23,9 @@ Build-time dependencies:
 
 Run-time dependencies:
 - Linux: `libddcutil4`
-- macOS: [Karabiner-Elements](https://karabiner-elements.pqrs.org) to map the
-  brightness keys (see [Use](#use)). Nothing else — the binaries are
-  self-contained.
+- macOS: nothing — `dimmitd` captures the brightness keys itself (see
+  [Use](#use)). On modern macOS grant it Input Monitoring; on 10.9 Mavericks no
+  permission is needed. The binaries are self-contained.
 
 This repository vendors `ddcctl` and `m1ddc` as git submodules. Clone with
 `git clone --recurse-submodules`, or initialize them in an existing clone:
@@ -67,12 +67,17 @@ cd build/universal
 ./dimmit-down
 ```
 
-If it works, great! Map your brightness keys to `dimmit-up` and `dimmit-down`.
+If it works, great!
 
-> **macOS:** the OS does not let arbitrary tools intercept the brightness keys,
-> so mapping them to `dimmit-up`/`dimmit-down` requires
-> [Karabiner-Elements](https://karabiner-elements.pqrs.org). This is a hard
-> prerequisite for the keys to do anything.
+On **Linux/NetBSD**, map your brightness keys to `dimmit-up` and `dimmit-down`
+in your desktop's keyboard settings.
+
+> **macOS:** no mapping needed — `dimmitd` captures the brightness keys directly
+> (via IOKit HID). On modern macOS, grant it Input Monitoring (System Settings →
+> Privacy & Security → Input Monitoring); on 10.9 Mavericks no permission is
+> needed. (If you'd rather it not grab the keys, the `dimmit-up`/`dimmit-down`
+> clients can still be mapped by any tool, e.g.
+> [Karabiner-Elements](https://karabiner-elements.pqrs.org).)
 
 ## Install
 
@@ -88,8 +93,8 @@ starts in your session at login (the installer also starts it immediately). The
 daemon logs to `~/Library/Logs/dimmitd.log`. Re-installing a newer `.pkg` is
 safe: it unloads the running agent, swaps the binaries, and reloads.
 
-You still need [Karabiner-Elements](https://karabiner-elements.pqrs.org) to map
-the brightness keys (see [Use](#use)).
+`dimmitd` captures the brightness keys directly; on modern macOS, grant it Input
+Monitoring (see [Use](#use)).
 
 > Phase 1 packages are **unsigned**. On modern macOS, clear the quarantine
 > first: `xattr -dr com.apple.quarantine dimmit-<version>.pkg`
