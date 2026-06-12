@@ -154,6 +154,11 @@ include(GNUInstallDirs)
 
 find_package(Threads REQUIRED)
 
+# dimmer.c calls lround(), which lives in libm on platforms (Linux, the BSDs)
+# that split the math library out of libc. macOS folds libm into libSystem, so
+# find_library still resolves there and the explicit link is a harmless no-op.
+find_library(MATH_LIBRARY m)
+
 # ============================================================================
 # Build Configuration
 # ============================================================================
@@ -314,6 +319,9 @@ add_executable(dimmitd
 target_include_directories(dimmitd PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(dimmitd PRIVATE Threads::Threads ${PLATFORM_LIBS})
+if (MATH_LIBRARY)
+    target_link_libraries(dimmitd PRIVATE ${MATH_LIBRARY})
+endif()
 
 # clock_gettime() compat for macOS < 10.12. The source self-gates on the
 # deployment target (no-op at >= 10.12). The header is force-included so its
@@ -418,5 +426,9 @@ add_executable(test_dimmit
     src/platform/access-control/mock.c)
 target_include_directories(test_dimmit PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# test_dimmit also compiles dimmer.c, so it needs libm for the same lround().
+if (MATH_LIBRARY)
+    target_link_libraries(test_dimmit PRIVATE ${MATH_LIBRARY})
+endif()
 
 add_test(NAME dimmit_unit COMMAND test_dimmit)
