@@ -347,6 +347,7 @@ endfunction()
 dimmit_add_platform_backend(dimmitd ddc)
 dimmit_add_platform_backend(dimmitd access-control)
 dimmit_add_platform_backend(dimmitd logging)
+dimmit_add_platform_backend(dimmitd input)
 
 # Platform-specific extras for the DDC backend (vendored libs, arch glue, header
 # search paths). The access-control backends need none of this.
