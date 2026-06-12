@@ -16,6 +16,7 @@
 #include "platform/ddc/abstraction.h"
 #include "platform/access-control/access-control.h"
 #include "platform/logging/logging.h"
+#include "platform/input/input.h"
 #include "dimmer.h"
 #include "command.h"
 #include "config.h"
@@ -116,6 +117,15 @@ static void adjust_brightness(int delta) {
     pthread_mutex_unlock(&lock);
 }
 
+/* Apply a signed fraction of the display's range -- the input subsystem's
+ * platform-convention step (e.g. macOS 1/16). Matches input_adjust_fn. */
+static void adjust_fraction(double frac) {
+    pthread_mutex_lock(&lock);
+    int max = dimmer_max(&dimmer);
+    pthread_mutex_unlock(&lock);
+    adjust_brightness(dimmer_delta_for_fraction(max, frac));
+}
+
 int main(void) {
     int sock = -1, client;
     struct sockaddr_un addr;
@@ -144,6 +154,10 @@ int main(void) {
         goto cleanup;
     }
     worker_started = 1;
+
+    /* Optional in-process brightness-key capture (macOS HID); non-fatal -- the
+     * socket clients remain the input if it's unsupported or denied. */
+    input_start(adjust_fraction);
 
     unlink(sock_path);
 
@@ -214,6 +228,7 @@ cleanup:
     /* Reached on normal shutdown and on every error path. Stop and join the
      * worker if it was started, then release the socket and display. */
     running = 0;
+    input_stop();
     if (worker_started) {
         pthread_cond_signal(&cond);
         pthread_join(worker, NULL);
