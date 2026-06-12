@@ -17,9 +17,7 @@ Build-time dependencies:
 - CMake
 - Linux: `pkg-config` and `libddcutil-dev`
 - macOS: a Command Line Tools / Xcode toolchain. No third-party libraries are
-  needed — the bits missing on older macOS (`clock_gettime()` before 10.12, and
-  `IORegistryEntryCopyPath()` before 10.11) are supplied by small in-tree compat
-  shims, so the same source builds on everything from Mavericks to Tahoe.
+  needed — the same source builds on everything from Mavericks to Tahoe.
 
 Run-time dependencies:
 - Linux: `libddcutil4`
@@ -72,12 +70,12 @@ If it works, great!
 On **Linux/NetBSD**, map your brightness keys to `dimmit-up` and `dimmit-down`
 in your desktop's keyboard settings.
 
-> **macOS:** no mapping needed — `dimmitd` captures the brightness keys directly
-> (via IOKit HID). On modern macOS, grant it Input Monitoring (System Settings →
-> Privacy & Security → Input Monitoring); on 10.9 Mavericks no permission is
-> needed. (If you'd rather it not grab the keys, the `dimmit-up`/`dimmit-down`
-> clients can still be mapped by any tool, e.g.
-> [Karabiner-Elements](https://karabiner-elements.pqrs.org).)
+> **macOS:** nothing to map — the brightness keys already work, because `dimmitd`
+> captures them directly. On 10.9 Mavericks it works out of the box, no permission
+> needed. On modern macOS you may need to grant `dimmitd` Input Monitoring (System
+> Settings → Privacy & Security → Input Monitoring) — and note that grant may not
+> stick yet for the installed background agent (a known limitation we're still
+> working on).
 
 ## Install
 

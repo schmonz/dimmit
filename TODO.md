@@ -32,8 +32,6 @@
 - Publish `.pkg`
   - Make it uninstallable
 - Be able to self-update somehow (no GUI, so not Sparkle)
-- Stop needing [Karabiner-Elements](https://karabiner-elements.pqrs.org);
-      somehow intercept brightness events directly
 
 ## Platform: Linux
 
