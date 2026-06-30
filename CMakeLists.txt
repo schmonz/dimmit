@@ -454,5 +454,11 @@ target_include_directories(test_dimmit PRIVATE
 if (MATH_LIBRARY)
     target_link_libraries(test_dimmit PRIVATE ${MATH_LIBRARY})
 endif()
+# test_dimmit also compiles command.c, whose read_command() calls recv() -- on
+# Windows that lives in Winsock, so the test needs ws2_32 just like the daemon
+# and clients do.
+if (WIN32)
+    target_link_libraries(test_dimmit PRIVATE ws2_32)
+endif()
 
 add_test(NAME dimmit_unit COMMAND test_dimmit)

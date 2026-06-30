@@ -11,8 +11,10 @@
 
 #include <stdio.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
 #include <sys/socket.h>
+#endif
 
 extern int access_control_mock_authorized; /* from platform/access-control/mock.c */
 
@@ -149,6 +151,12 @@ static void test_dimmer_fraction(void) {
  * as an actual simulated brightness change, with no daemon process, real clock,
  * or worker thread. */
 static void test_command_loop_end_to_end(void) {
+#ifdef _WIN32
+    /* socketpair() is POSIX-only. The socket transport is verified on Windows by
+     * the manual daemon+client smoke test (see docs note); the parse->dimmer->
+     * mock-display logic this test also covers is exercised by the other tests. */
+    fprintf(stderr, "SKIP test_command_loop_end_to_end on Windows (no socketpair)\n");
+#else
     int sv[2];
     CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
 
@@ -186,6 +194,7 @@ static void test_command_loop_end_to_end(void) {
 
     close(sv[0]);
     close(sv[1]);
+#endif
 }
 
 static void test_authorization(void) {
