@@ -414,8 +414,10 @@ endif()
 add_executable(dimmit-up src/dimmit.c)
 add_executable(dimmit-down src/dimmit.c)
 
-target_include_directories(dimmit-up PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_include_directories(dimmit-down PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(dimmit-up PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(dimmit-down PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 if (WIN32)
     target_link_libraries(dimmit-up PRIVATE ws2_32)
