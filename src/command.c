@@ -1,7 +1,6 @@
 #include "command.h"
 
 #include <string.h>
-#include <unistd.h>
 
 int parse_command(const char *cmd) {
     if (strcmp(cmd, "up") == 0) return STEP;
@@ -9,9 +8,9 @@ int parse_command(const char *cmd) {
     return 0;
 }
 
-int read_command(int fd) {
+int read_command(dimmit_sock_t fd) {
     char buf[16];
-    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    int n = (int)recv(fd, buf, sizeof(buf) - 1, 0);
     if (n <= 0) return 0;
 
     buf[n] = '\0';
