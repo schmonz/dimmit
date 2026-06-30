@@ -163,7 +163,11 @@ find_library(MATH_LIBRARY m)
 # Build Configuration
 # ============================================================================
 
-set(DIMMIT_SOCK_DEFAULT "/tmp/dimmit.sock" CACHE STRING "Default Unix socket path for dimmit")
+if (WIN32)
+    set(DIMMIT_SOCK_DEFAULT "C:/Users/Public/dimmit.sock" CACHE STRING "Default Unix socket path for dimmit")
+else()
+    set(DIMMIT_SOCK_DEFAULT "/tmp/dimmit.sock" CACHE STRING "Default Unix socket path for dimmit")
+endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h @ONLY)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/service/service_systemd.service
@@ -395,6 +399,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(dimmitd PRIVATE ${DDCUTIL_INCLUDE_DIRS})
     target_compile_options(dimmitd PRIVATE ${DDCUTIL_CFLAGS_OTHER})
+elseif (WIN32)
+    # dxva2: Monitor Configuration API (GetVCPFeatureAndVCPFeatureReply /
+    # SetVCPFeature). ws2_32: Winsock, including AF_UNIX support (Win10 1803+).
+    target_link_libraries(dimmitd PRIVATE dxva2 ws2_32)
 endif()
 
 # ============================================================================
@@ -408,6 +416,11 @@ add_executable(dimmit-down src/dimmit.c)
 
 target_include_directories(dimmit-up PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(dimmit-down PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+
+if (WIN32)
+    target_link_libraries(dimmit-up PRIVATE ws2_32)
+    target_link_libraries(dimmit-down PRIVATE ws2_32)
+endif()
 
 # ============================================================================
 # Installation
