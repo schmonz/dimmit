@@ -1,0 +1,6 @@
+# Shared cross-platform working tree: the same checkout is accessed from Unix
+# (WSL/NFS) and from native Windows. Force LF for every detected-text file so a
+# Windows git (e.g. Git-for-Windows with autocrlf=true) can never rewrite the
+# tree to CRLF and desync the Unix side. Binaries are auto-detected and left
+# untouched.
+* text=auto eol=lf
