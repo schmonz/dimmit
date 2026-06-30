@@ -3,15 +3,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <signal.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <sys/stat.h>
 #include <errno.h>
 #include <pthread.h>
-#include <sys/time.h>
 #include <time.h>
+#include "platform/compat/net.h"
+#ifdef _WIN32
+  #include <windows.h>
+  #include <io.h>      /* _unlink */
+  #define unlink _unlink
+#else
+  #include <unistd.h>
+  #include <signal.h>
+  #include <sys/stat.h>
+  #include <sys/time.h>
+#endif
 
 #include "platform/ddc/abstraction.h"
 #include "platform/access-control/access-control.h"
@@ -43,9 +48,18 @@ static dimmer_t dimmer;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
+#ifdef _WIN32
+static BOOL WINAPI console_ctrl_handler(DWORD ctrl_type) {
+    (void)ctrl_type;   /* Ctrl-C/close/logoff/shutdown all mean: stop. */
+    running = 0;
+    return TRUE;
+}
+#else
 static void sighandler(int sig) {
+    (void)sig;
     running = 0;
 }
+#endif
 
 static int init_monitor(void) {
     dimmer_init(&dimmer, 50, 100);  /* sane defaults until the display answers */
@@ -130,7 +144,7 @@ static void adjust_fraction(double frac) {
 }
 
 int main(void) {
-    int sock = -1, client;
+    dimmit_sock_t sock = DIMMIT_BAD_SOCK, client;
     struct sockaddr_un addr;
     pthread_t worker;
     int worker_started = 0;
@@ -141,8 +155,16 @@ int main(void) {
         fprintf(stderr, "Warning: logging not redirected; continuing\n");
     }
 
+#ifdef _WIN32
+    if (net_startup() != 0) {
+        fprintf(stderr, "net_startup failed\n");
+        return 1;
+    }
+    SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+#else
     signal(SIGINT, sighandler);
     signal(SIGTERM, sighandler);
+#endif
 
     if (access_control_before_bind() < 0) {
         return 1;
@@ -165,7 +187,7 @@ int main(void) {
     unlink(sock_path);
 
     sock = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (sock < 0) {
+    if (sock == DIMMIT_BAD_SOCK) {
         perror("socket");
         goto cleanup;
     }
@@ -205,15 +227,17 @@ int main(void) {
             continue;
 
         client = accept(sock, NULL, NULL);
-        if (client < 0) {
+        if (client == DIMMIT_BAD_SOCK) {
+#ifndef _WIN32
             if (errno == EINTR) continue;
+#endif
             perror("accept");
             break;
         }
 
-        if (!access_control_is_authorized(client)) {
+        if (!access_control_is_authorized((int)client)) {
             fprintf(stderr, "Access denied\n");
-            close(client);
+            net_close(client);
             continue;
         }
 
@@ -224,7 +248,7 @@ int main(void) {
             fprintf(stderr, "Ignoring empty or unknown command\n");
         }
 
-        close(client);
+        net_close(client);
     }
 
 cleanup:
@@ -236,11 +260,12 @@ cleanup:
         pthread_cond_signal(&cond);
         pthread_join(worker, NULL);
     }
-    if (sock >= 0) close(sock);
+    if (sock != DIMMIT_BAD_SOCK) net_close(sock);
     if (bound) unlink(sock_path);
     if (ddc) {
         ddc_close_display(ddc);
     }
+    net_cleanup();
 
     return 0;
 }
