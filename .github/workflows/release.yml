@@ -33,7 +33,7 @@ jobs:
     runs-on: macos-26       # Tahoe (SDK 26.x) -- matches the toolchain we
                             # verified GREEN on real 10.9; builds both slices
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive   # vendored ddcctl + m1ddc are git submodules
 
@@ -108,7 +108,7 @@ jobs:
   release-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
