@@ -93,7 +93,7 @@ jobs:
           cat latest.json
 
       - name: Upload build artifact (always)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dimmit-pkg
           path: |
@@ -137,7 +137,7 @@ jobs:
           sh packaging/linux/build_deb.sh build-deb "$VER" noble "dimmit_${VER}_amd64.deb"
 
       - name: Upload build artifact (always)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dimmit-deb
           path: dimmit_*_amd64.deb
@@ -154,7 +154,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true   # flatten every artifact into dist/
