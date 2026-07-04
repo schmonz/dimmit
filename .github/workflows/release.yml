@@ -160,7 +160,7 @@ jobs:
           merge-multiple: true   # flatten every artifact into dist/
 
       - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/dimmit-*.pkg
