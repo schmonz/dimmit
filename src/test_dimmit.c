@@ -271,6 +271,27 @@ static void test_controller_partial_failure_isolated(void) {
     mock_reset(1, (int[]){50}, (int[]){100});
 }
 
+static void test_controller_reconcile_add_and_keep(void) {
+    mock_reset(1, (int[]){50}, (int[]){100});
+    display_controller *c = controller_open();
+    controller_adjust(c, -1.0/16.0); controller_service(c);
+    CHECK(controller_current(c, 0) == 44);   /* display 0 moved to 44 */
+
+    /* A second monitor is plugged in. */
+    mock_reset(2, (int[]){44, 70}, (int[]){100, 100});
+    controller_reconcile(c);
+    CHECK(controller_count(c) == 2);
+    CHECK(controller_current(c, 0) == 44);   /* kept its level */
+    CHECK(controller_current(c, 1) == 70);   /* new one initialized from its current */
+
+    /* Unplug the first. */
+    mock_reset(1, (int[]){70}, (int[]){100});
+    controller_reconcile(c);
+    CHECK(controller_count(c) == 1);
+    controller_close(c);
+    mock_reset(1, (int[]){50}, (int[]){100});
+}
+
 static void test_ddc_roundtrip(void) {
     ddc_handle_t *h = ddc_open_display();
     CHECK(h != NULL);
@@ -303,6 +324,7 @@ int main(void) {
     test_controller_lockstep_preserves_offset();
     test_controller_clamps_at_rails();
     test_controller_partial_failure_isolated();
+    test_controller_reconcile_add_and_keep();
     test_ddc_roundtrip();
 
     if (failures) {

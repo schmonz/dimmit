@@ -1,6 +1,7 @@
 #include "display_controller.h"
 #include "dimmer.h"
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct { brightness_source src; dimmer_t dim; } managed_display;
 
@@ -51,6 +52,45 @@ int controller_service(display_controller *c) {
         }
     }
     return applied;
+}
+
+void controller_reconcile(display_controller *c) {
+    if (!c) return;
+    brightness_source *fresh = NULL; int fresh_n = 0;
+    if (brightness_enumerate(&fresh, &fresh_n) != 0) return;   /* keep current set on failure */
+
+    managed_display *next = fresh_n > 0
+        ? (managed_display*)calloc((size_t)fresh_n, sizeof(managed_display)) : NULL;
+    if (fresh_n > 0 && !next) { brightness_free(fresh, fresh_n); return; }
+
+    for (int i = 0; i < fresh_n; i++) {
+        int matched = -1;
+        for (int j = 0; j < c->count; j++) {
+            if (strcmp(fresh[i].id, c->sources[j].id) == 0) { matched = j; break; }
+        }
+        next[i].src = fresh[i];
+        if (matched >= 0) {
+            next[i].dim = c->displays[matched].dim;   /* preserve level + pending */
+        } else {
+            int cur = 0, max = 100;
+            if (fresh[i].ops->get(fresh[i].ctx, &cur, &max) != 0) { cur = 0; max = 100; }
+            dimmer_init(&next[i].dim, cur, max);
+        }
+    }
+
+    /* Close only the sources that did NOT survive into the new set. */
+    for (int j = 0; j < c->count; j++) {
+        int survived = 0;
+        for (int i = 0; i < fresh_n; i++) if (strcmp(fresh[i].id, c->sources[j].id) == 0) { survived = 1; break; }
+        if (!survived && c->sources[j].ops && c->sources[j].ops->close)
+            c->sources[j].ops->close(c->sources[j].ctx);
+    }
+    free(c->sources);     /* free old array shell; surviving ctx now owned via `fresh` */
+    free(c->displays);
+    c->sources = fresh;   /* NOTE: fresh[i].ctx for a matched display is a *new* open;
+                             the old matched ctx was closed above. */
+    c->count = fresh_n;
+    c->displays = next;
 }
 
 int controller_current(const display_controller *c, int i) {

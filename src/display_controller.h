@@ -25,6 +25,12 @@ void controller_adjust(display_controller *c, double fraction);
  * dimmer_settled on failure). Returns the number of displays written. */
 int  controller_service(display_controller *c);
 
+/* Re-enumerate the display set. Displays whose id still matches keep their dimmer
+ * (and level); new displays are opened and initialized from their own current;
+ * vanished displays are closed and dropped. Phase 1 calls this on a timer; Phase 3
+ * replaces the trigger with per-platform display-change events. */
+void controller_reconcile(display_controller *c);
+
 /* Test accessor: last-applied brightness of display i, or -1 if out of range. */
 int  controller_current(const display_controller *c, int i);
 
