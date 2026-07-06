@@ -163,43 +163,16 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up MSYS2 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: ${{ matrix.msystem }}
-          update: true
-          install: >-
-            git
-            ${{ matrix.prefix }}-${{ matrix.cc }}
-            ${{ matrix.prefix }}-cmake
-            ${{ matrix.prefix }}-ninja
-            ${{ matrix.prefix }}-pkgconf
-
       - name: Determine version
         id: ver
         uses: ./.github/actions/determine-version
 
-      - name: Build (static, self-contained PE)
-        run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
-            -DCMAKE_EXE_LINKER_FLAGS="-static"
-          cmake --build build
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
-
-      - name: Guard -- only OS-provided DLL imports
-        run: |
-          OBJDUMP="$(command -v objdump || command -v llvm-objdump || true)"
-          if [ -z "$OBJDUMP" ]; then echo "no objdump; skipping guard"; exit 0; fi
-          for exe in build/dimmitd.exe build/dimmit-up.exe build/dimmit-down.exe; do
-            deps="$("$OBJDUMP" -p "$exe" || true)"
-            echo "== $exe =="; echo "$deps" | grep -i 'DLL Name' || true
-            if echo "$deps" | grep -Eqi 'libwinpthread|libgcc_s|libstdc\+\+|libc\+\+|libunwind'; then
-              echo "::error::non-system runtime DLL linked into $exe"; exit 1
-            fi
-          done
+      - name: Build and test
+        uses: ./.github/actions/build-windows
+        with:
+          msystem: ${{ matrix.msystem }}
+          prefix: ${{ matrix.prefix }}
+          cc: ${{ matrix.cc }}
 
       - name: Package zip
         run: |
