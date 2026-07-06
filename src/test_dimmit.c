@@ -33,14 +33,15 @@ static int failures = 0;
 } while (0)
 
 static void test_parse_command(void) {
-    CHECK(parse_command("up") == STEP);
-    CHECK(parse_command("down") == -STEP);
+    CHECK(parse_command("up") == 1);
+    CHECK(parse_command("down") == -1);
     CHECK(parse_command("bogus") == 0);
     CHECK(parse_command("") == 0);
 }
 
 static void test_dimmer_accumulates(void) {
     dimmer_t d;
+    const int STEP = 5;
 
     dimmer_init(&d, 50, 100);
     dimmer_adjust(&d, STEP);
@@ -51,6 +52,7 @@ static void test_dimmer_accumulates(void) {
 
 static void test_dimmer_clamps(void) {
     dimmer_t d;
+    const int STEP = 5;
 
     /* A step that would overshoot the ceiling lands exactly on it. */
     dimmer_init(&d, 98, 100);
@@ -70,6 +72,7 @@ static void test_dimmer_clamps(void) {
 static void test_dimmer_due(void) {
     dimmer_t d;
     int target = -1;
+    const int STEP = 5;
 
     /* Due as soon as there's a pending delta -- no time gate (leading edge). */
     dimmer_init(&d, 50, 100);
@@ -89,6 +92,7 @@ static void test_dimmer_not_due_without_pending(void) {
 static void test_dimmer_commit_and_settled(void) {
     dimmer_t d;
     int target = -1;
+    const int STEP = 5;
 
     dimmer_init(&d, 50, 100);
     dimmer_adjust(&d, STEP);
@@ -115,6 +119,7 @@ static void test_dimmer_commit_and_settled(void) {
 static void test_dimmer_coalesces_during_write(void) {
     dimmer_t d;
     int target = -1;
+    const int STEP = 5;
 
     dimmer_init(&d, 100, 100);
     dimmer_adjust(&d, -STEP);                 /* press 1 */
@@ -167,7 +172,7 @@ static void test_command_loop_end_to_end(void) {
     const char *msg = "down\n";
     CHECK(write(sv[0], msg, strlen(msg)) == (ssize_t)strlen(msg));
     int delta = read_command(sv[1]);
-    CHECK(delta == -STEP);
+    CHECK(delta == -1);
 
     /* Open the mock display and run the parsed command all the way through the
      * dimmer pipeline as the worker would. */
@@ -180,7 +185,7 @@ static void test_command_loop_end_to_end(void) {
         dimmer_t d;
         dimmer_init(&d, cur, max);
 
-        dimmer_adjust(&d, delta);
+        dimmer_adjust(&d, delta * 5);
 
         int target = -1;
         CHECK(dimmer_due(&d, &target) == 1);
