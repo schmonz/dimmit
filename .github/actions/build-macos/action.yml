@@ -1,0 +1,43 @@
+name: Build and test (macOS)
+description: Build the macOS universal binary, test the arm64 slice, and guard the 10.9 compat shims.
+
+runs:
+  using: composite
+  steps:
+    # The top-level build is the macOS universal wrapper: it probes the
+    # toolchain, builds the arm64 (12.0) and x86_64 (10.9) slices, and lipos
+    # them into build/universal/. Same path users build locally -- DRY.
+    - name: Build universal binaries
+      shell: bash
+      run: |
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        cmake --build build
+        lipo -info build/universal/dimmitd
+
+    # Tests live in the per-arch sub-build trees, not the top-level universal
+    # dir (CMakeLists.txt's universal branch returns() before enable_testing()
+    # is ever reached). The arm64 slice runs natively on the runner; the
+    # x86_64/10.9 slice is guard-only below since it's not natively runnable
+    # here.
+    - name: Test (arm64 slice)
+      shell: bash
+      run: ctest --test-dir build/build-arm64 --output-on-failure
+
+    - name: 10.9 compat guard (no post-10.9 symbol leaks)
+      shell: bash
+      run: |
+        slice=build/build-x86_64/dimmitd
+        fail=0
+        # Our deployment-target shims must be present...
+        for sym in _dimmit_clock_gettime _dimmit_IORegistryEntryCopyPath; do
+          if ! nm "$slice" | grep -q "T $sym\$"; then
+            echo "::error::expected shim symbol $sym not defined in $slice"; fail=1
+          fi
+        done
+        # ...and the system symbols they replace must NOT appear as
+        # (non-weak) undefined references, or dyld aborts at launch on 10.9.
+        leaked=$(nm "$slice" | grep -E ' U _(clock_gettime|IORegistryEntryCopyPath)$' || true)
+        if [ -n "$leaked" ]; then
+          echo "::error::post-10.9 symbol leaked into the x86_64 slice:"; echo "$leaked"; fail=1
+        fi
+        exit $fail

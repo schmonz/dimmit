@@ -16,6 +16,17 @@ jobs:
       - name: Build and test
         uses: ./.github/actions/build-linux
 
+  macos:
+    name: Build and test (macOS)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Build and test
+        uses: ./.github/actions/build-macos
+
   windows:
     name: Build and test (Windows ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
