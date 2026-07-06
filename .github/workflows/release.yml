@@ -228,7 +228,7 @@ jobs:
           cmake -E tar cf "$dist.zip" --format=zip "$dist"
 
       - name: Upload build artifact (always)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dimmit-windows-${{ matrix.arch }}
           path: dimmit-*-windows-*.zip
