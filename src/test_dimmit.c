@@ -171,34 +171,17 @@ static void test_command_loop_end_to_end(void) {
     /* Client side writes "down\n"; daemon side reads + parses one command. */
     const char *msg = "down\n";
     CHECK(write(sv[0], msg, strlen(msg)) == (ssize_t)strlen(msg));
-    int delta = read_command(sv[1]);
-    CHECK(delta == -1);
+    int dir = read_command(sv[1]);
+    CHECK(dir == -1);
 
-    /* Open the mock display and run the parsed command all the way through the
-     * dimmer pipeline as the worker would. */
-    ddc_handle_t *h = ddc_open_display();
-    CHECK(h != NULL);
-    if (h) {
-        int cur = -1, max = -1;
-        CHECK(ddc_get_brightness(h, &cur, &max) == 0);   /* 50 / 100 */
-
-        dimmer_t d;
-        dimmer_init(&d, cur, max);
-
-        dimmer_adjust(&d, delta * 5);
-
-        int target = -1;
-        CHECK(dimmer_due(&d, &target) == 1);
-        CHECK(target == 45);
-
-        CHECK(ddc_set_brightness(h, target) == 0);
-        dimmer_commit(&d, target);
-
-        CHECK(ddc_get_brightness(h, &cur, &max) == 0);
-        CHECK(cur == 45);  /* the simulated display actually moved */
-
-        ddc_close_display(h);
-    }
+    /* Drive the parsed direction through the controller as the worker would: a
+     * socket "down" becomes a -1/16 fraction step against the mock display. */
+    mock_reset(1, (int[]){50}, (int[]){100});
+    display_controller *c = controller_open();
+    controller_adjust(c, dir * (1.0/16.0));
+    controller_service(c);
+    CHECK(controller_current(c, 0) == 44);  /* the simulated display actually moved */
+    controller_close(c);
 
     close(sv[0]);
     close(sv[1]);
@@ -297,21 +280,15 @@ static void test_controller_reconcile_add_and_keep(void) {
     mock_reset(1, (int[]){50}, (int[]){100});
 }
 
-static void test_ddc_roundtrip(void) {
-    ddc_handle_t *h = ddc_open_display();
-    CHECK(h != NULL);
-    if (!h) return;
-
-    int cur = -1, max = -1;
-    CHECK(ddc_get_brightness(h, &cur, &max) == 0);
-    CHECK(cur == 50);
-    CHECK(max == 100);
-
-    CHECK(ddc_set_brightness(h, 73) == 0);
-    CHECK(ddc_get_brightness(h, &cur, &max) == 0);
-    CHECK(cur == 73);
-
-    ddc_close_display(h);
+static void test_controller_roundtrip(void) {
+    mock_reset(1, (int[]){50}, (int[]){100});
+    display_controller *c = controller_open();
+    CHECK(controller_count(c) == 1);
+    CHECK(controller_current(c, 0) == 50);
+    controller_adjust(c, -1.0/16.0);
+    controller_service(c);
+    CHECK(controller_current(c, 0) == 44);
+    controller_close(c);
 }
 
 int main(void) {
@@ -330,7 +307,7 @@ int main(void) {
     test_controller_clamps_at_rails();
     test_controller_partial_failure_isolated();
     test_controller_reconcile_add_and_keep();
-    test_ddc_roundtrip();
+    test_controller_roundtrip();
 
     if (failures) {
         fprintf(stderr, "%d/%d checks FAILED\n", failures, checks);

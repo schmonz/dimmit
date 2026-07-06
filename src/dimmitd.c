@@ -18,15 +18,19 @@
   #include <sys/time.h>
 #endif
 
-#include "platform/ddc/abstraction.h"
+#include "display_controller.h"
 #include "platform/access-control/access-control.h"
 #include "platform/logging/logging.h"
 #include "platform/input/input.h"
-#include "dimmer.h"
 #include "command.h"
 #include "config.h"
 
 #define ACCEPT_BACKLOG 5
+
+/* Socket up/down step. macOS HID already supplies its own 1/16 fraction via
+ * input_adjust_fn; this is the fraction for the socket clients (and Linux/Windows,
+ * which have no native brightness-key step of their own). */
+#define DIMMIT_SOCKET_FRACTION (1.0/16.0)
 
 /* The worker blocks on the condvar until a press signals it; this timeout is
  * only a periodic wakeup so shutdown (running=0) is noticed promptly. It does
@@ -39,12 +43,12 @@ static const char* get_sock_path(void) {
 }
 
 static volatile int running = 1;
-static ddc_handle_t *ddc = NULL;
 
-/* All brightness/debounce state lives in the dimmer state machine (dimmer.c).
- * The mutex guards it against the worker thread; the slow DDC write happens
- * with the lock released. */
-static dimmer_t dimmer;
+/* All brightness state lives in the display controller (one dimmer per display).
+ * The mutex guards the controller against the worker thread; controller_service()
+ * performs the slow writes and is called under the lock (writes are serialized
+ * across displays anyway). */
+static display_controller *ctrl = NULL;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
@@ -62,35 +66,13 @@ static void sighandler(int sig) {
 #endif
 
 static int init_monitor(void) {
-    dimmer_init(&dimmer, 50, 100);  /* sane defaults until the display answers */
-
-    ddc = ddc_open_display();
-    if (!ddc) {
-        fprintf(stderr, "Failed to open display\n");
+    ctrl = controller_open();
+    if (!ctrl) {
+        fprintf(stderr, "Failed to initialize displays\n");
         return -1;
     }
-
-    int cur, max;
-    if (ddc_get_brightness(ddc, &cur, &max) == 0) {
-        dimmer_init(&dimmer, cur, max);
-        printf("Monitor initialized: current=%d, max=%d\n", cur, max);
-    } else {
-        fprintf(stderr, "Warning: couldn't read initial brightness\n");
-    }
-
-    return 0;
-}
-
-/* Perform the (slow) DDC write with the lock released. Returns 0 on success.
- * The caller commits the new value into the dimmer under the lock so that
- * state is never written outside the mutex. */
-static int do_set_brightness(int value) {
-    if (ddc_set_brightness(ddc, value) == 0) {
-        printf("Brightness: %d\n", value);
-        return 0;
-    }
-    fprintf(stderr, "Failed to set brightness\n");
-    return -1;
+    printf("Controlling %d display(s)\n", controller_count(ctrl));
+    return 0;   /* 0 displays is fine; hotplug may add some */
 }
 
 static void* brightness_worker(void* arg) {
@@ -98,20 +80,11 @@ static void* brightness_worker(void* arg) {
 
     pthread_mutex_lock(&lock);
     while (running) {
-        int target;
-        if (dimmer_due(&dimmer, &target)) {
-            /* Write with the lock released (it's slow). Presses that land during
-             * the write accumulate into pending_delta; the loop drains them on
-             * the next iteration before ever going back to wait. */
-            pthread_mutex_unlock(&lock);
-            int ok = do_set_brightness(target);
-            pthread_mutex_lock(&lock);
-            if (ok == 0)
-                dimmer_commit(&dimmer, target);  /* keeps deltas that arrived mid-write */
-            else
-                dimmer_settled(&dimmer);         /* abandon the batch on failure */
+        /* Service every due display (the slow writes happen here, under the lock;
+         * writes are serialized across displays anyway). If anything was applied,
+         * loop again to drain deltas before going back to wait. */
+        if (controller_service(ctrl) > 0)
             continue;
-        }
 
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
@@ -127,20 +100,14 @@ static void* brightness_worker(void* arg) {
     return NULL;
 }
 
-static void adjust_brightness(int delta) {
-    pthread_mutex_lock(&lock);
-    dimmer_adjust(&dimmer, delta);
-    pthread_cond_signal(&cond);
-    pthread_mutex_unlock(&lock);
-}
-
-/* Apply a signed fraction of the display's range -- the input subsystem's
- * platform-convention step (e.g. macOS 1/16). Matches input_adjust_fn. */
+/* Fan a signed fraction step out to every display (each by that fraction of its
+ * own max, so offsets are preserved) and wake the worker to apply it. Matches
+ * input_adjust_fn; the socket path passes dir * DIMMIT_SOCKET_FRACTION. */
 static void adjust_fraction(double frac) {
     pthread_mutex_lock(&lock);
-    int max = dimmer_max(&dimmer);
+    controller_adjust(ctrl, frac);
+    pthread_cond_signal(&cond);
     pthread_mutex_unlock(&lock);
-    adjust_brightness(dimmer_delta_for_fraction(max, frac));
 }
 
 int main(void) {
@@ -223,8 +190,14 @@ int main(void) {
         FD_ZERO(&fds);
         FD_SET(sock, &fds);
 
-        if (select(sock + 1, &fds, NULL, NULL, &tv) <= 0)
+        if (select(sock + 1, &fds, NULL, NULL, &tv) <= 0) {
+            /* Idle tick: poll for hotplugged/unplugged displays. Phase 3 replaces
+             * this with per-platform display-change events. */
+            pthread_mutex_lock(&lock);
+            controller_reconcile(ctrl);
+            pthread_mutex_unlock(&lock);
             continue;
+        }
 
         client = accept(sock, NULL, NULL);
         if (client == DIMMIT_BAD_SOCK) {
@@ -241,9 +214,9 @@ int main(void) {
             continue;
         }
 
-        int delta = read_command(client);
-        if (delta != 0) {
-            adjust_brightness(delta);
+        int dir = read_command(client);
+        if (dir != 0) {
+            adjust_fraction(dir * DIMMIT_SOCKET_FRACTION);
         } else {
             fprintf(stderr, "Ignoring empty or unknown command\n");
         }
@@ -262,8 +235,8 @@ cleanup:
     }
     if (sock != DIMMIT_BAD_SOCK) net_close(sock);
     if (bound) unlink(sock_path);
-    if (ddc) {
-        ddc_close_display(ddc);
+    if (ctrl) {
+        controller_close(ctrl);
     }
     net_cleanup();
 
