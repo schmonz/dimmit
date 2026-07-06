@@ -13,19 +13,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake pkg-config libddcutil-dev
-
-      - name: Configure
-        run: cmake -B build
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
+      - name: Build and test
+        uses: ./.github/actions/build-linux
 
   windows:
     name: Build and test (Windows ${{ matrix.arch }})
