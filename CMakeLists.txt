@@ -311,6 +311,7 @@ add_executable(dimmitd
     src/dimmitd.c
     src/dimmer.c
     src/command.c
+    src/brightness.c
     src/platform/ddc/abstraction.c
 )
 
@@ -446,6 +447,7 @@ enable_testing()
 
 add_executable(test_dimmit
     src/test_dimmit.c src/dimmer.c src/command.c
+    src/brightness.c
     src/platform/ddc/abstraction.c src/platform/ddc/in_memory_mock.c
     src/platform/access-control/mock.c)
 target_include_directories(test_dimmit PRIVATE

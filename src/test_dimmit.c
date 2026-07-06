@@ -6,7 +6,9 @@
  * clock, sockets, or worker thread are involved. */
 #include "dimmer.h"
 #include "command.h"
+#include "brightness.h"
 #include "platform/ddc/abstraction.h"
+#include "platform/ddc/in_memory_mock.h"
 #include "platform/access-control/access-control.h"
 
 #include <stdio.h>
@@ -205,6 +207,29 @@ static void test_authorization(void) {
     access_control_mock_authorized = 1;
 }
 
+static void test_brightness_enumerate_multi(void) {
+    int currents[] = {50, 20, 80};
+    int maxes[]    = {100, 100, 255};
+    mock_reset(3, currents, maxes);
+
+    brightness_source *s = NULL; int n = -1;
+    CHECK(brightness_enumerate(&s, &n) == 0);
+    CHECK(n == 3);
+
+    int cur = -1, max = -1;
+    CHECK(s[1].ops->get(s[1].ctx, &cur, &max) == 0);
+    CHECK(cur == 20); CHECK(max == 100);
+
+    CHECK(s[2].ops->set(s[2].ctx, 100) == 0);
+    CHECK(mock_current(2) == 100);
+
+    /* ids are distinct (needed later for reconcile). */
+    CHECK(strcmp(s[0].id, s[1].id) != 0);
+
+    brightness_free(s, n);
+    mock_reset(1, (int[]){50}, (int[]){100});  /* restore default for other tests */
+}
+
 static void test_ddc_roundtrip(void) {
     ddc_handle_t *h = ddc_open_display();
     CHECK(h != NULL);
@@ -233,6 +258,7 @@ int main(void) {
     test_dimmer_fraction();
     test_command_loop_end_to_end();
     test_authorization();
+    test_brightness_enumerate_multi();
     test_ddc_roundtrip();
 
     if (failures) {
