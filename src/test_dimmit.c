@@ -7,6 +7,7 @@
 #include "dimmer.h"
 #include "command.h"
 #include "brightness.h"
+#include "display_controller.h"
 #include "platform/ddc/abstraction.h"
 #include "platform/ddc/in_memory_mock.h"
 #include "platform/access-control/access-control.h"
@@ -230,6 +231,46 @@ static void test_brightness_enumerate_multi(void) {
     mock_reset(1, (int[]){50}, (int[]){100});  /* restore default for other tests */
 }
 
+static void test_controller_lockstep_preserves_offset(void) {
+    /* Two displays, different starting levels + different max. */
+    mock_reset(2, (int[]){50, 20}, (int[]){100, 100});
+    display_controller *c = controller_open();
+    CHECK(c != NULL);
+    CHECK(controller_count(c) == 2);
+
+    controller_adjust(c, -1.0/16.0);      /* -6 on each (fraction of own max=100) */
+    CHECK(controller_service(c) == 2);
+    CHECK(controller_current(c, 0) == 44);
+    CHECK(controller_current(c, 1) == 14);  /* 30-point offset preserved */
+
+    controller_close(c);
+    mock_reset(1, (int[]){50}, (int[]){100});
+}
+
+static void test_controller_clamps_at_rails(void) {
+    mock_reset(2, (int[]){3, 98}, (int[]){100, 100});
+    display_controller *c = controller_open();
+    controller_adjust(c, -1.0/16.0);      /* both want -6 */
+    controller_service(c);
+    CHECK(controller_current(c, 0) == 0);   /* clamped at floor */
+    CHECK(controller_current(c, 1) == 92);
+    controller_close(c);
+    mock_reset(1, (int[]){50}, (int[]){100});
+}
+
+static void test_controller_partial_failure_isolated(void) {
+    mock_reset(2, (int[]){50, 50}, (int[]){100, 100});
+    mock_set_fail(0, 1);                    /* display 0 writes fail */
+    display_controller *c = controller_open();
+    controller_adjust(c, -1.0/16.0);
+    CHECK(controller_service(c) == 1);      /* only display 1 written */
+    CHECK(mock_current(0) == 50);           /* display 0 unchanged */
+    CHECK(mock_current(1) == 44);           /* display 1 moved */
+    controller_close(c);
+    mock_set_fail(0, 0);
+    mock_reset(1, (int[]){50}, (int[]){100});
+}
+
 static void test_ddc_roundtrip(void) {
     ddc_handle_t *h = ddc_open_display();
     CHECK(h != NULL);
@@ -259,6 +300,9 @@ int main(void) {
     test_command_loop_end_to_end();
     test_authorization();
     test_brightness_enumerate_multi();
+    test_controller_lockstep_preserves_offset();
+    test_controller_clamps_at_rails();
+    test_controller_partial_failure_isolated();
     test_ddc_roundtrip();
 
     if (failures) {
