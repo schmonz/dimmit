@@ -15,7 +15,7 @@ My feelings about this are mixed, but I'm happy to have Dimmit.
 
 Some big limitations that I hope to lift:
 
-- A single external display only (not handling multiples or internals yet)
+- All connected external displays now dim together in relative lockstep; internal-panel handling on Linux/Windows is still to come (on macOS the OS already dims the built-in panel on the brightness key)
 - On modern macOS, the access permissions probably don't stick
 - On Linux, mapping the brightness keys is your responsibility
 
