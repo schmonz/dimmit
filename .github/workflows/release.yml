@@ -41,32 +41,8 @@ jobs:
         id: ver
         uses: ./.github/actions/determine-version
 
-      # The top-level build is the macOS universal wrapper: it probes the
-      # toolchain, builds the arm64 (12.0) and x86_64 (10.9) slices, and lipos
-      # them into build/universal/. Same path users build locally -- DRY.
-      - name: Build universal binaries
-        run: |
-          cmake -S . -B build
-          cmake --build build
-          lipo -info build/universal/dimmitd
-
-      - name: 10.9 compat guard (no post-10.9 symbol leaks)
-        run: |
-          slice=build/build-x86_64/dimmitd
-          fail=0
-          # Our deployment-target shims must be present...
-          for sym in _dimmit_clock_gettime _dimmit_IORegistryEntryCopyPath; do
-            if ! nm "$slice" | grep -q "T $sym\$"; then
-              echo "::error::expected shim symbol $sym not defined in $slice"; fail=1
-            fi
-          done
-          # ...and the system symbols they replace must NOT appear as
-          # (non-weak) undefined references, or dyld aborts at launch on 10.9.
-          leaked=$(nm "$slice" | grep -E ' U _(clock_gettime|IORegistryEntryCopyPath)$' || true)
-          if [ -n "$leaked" ]; then
-            echo "::error::post-10.9 symbol leaked into the x86_64 slice:"; echo "$leaked"; fail=1
-          fi
-          exit $fail
+      - name: Build and test
+        uses: ./.github/actions/build-macos
 
       - name: Build .pkg
         run: |
