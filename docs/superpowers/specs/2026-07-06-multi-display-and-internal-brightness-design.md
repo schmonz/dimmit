@@ -96,9 +96,19 @@ typedef struct brightness_backend {
 const brightness_backend **brightness_backends(int *count);
 ```
 
-`ddc/abstraction.{c,h}` (`ddc_open_display`/`ddc_get_brightness`/…, and the
-`VCP_*` macros) is renamed to this generic `brightness_*`/`display_*` layer. The
-`VCP_*` codes and non-table value packing move *into* the DDC backend.
+**Where this lives (refined during planning to minimize churn).** The existing
+`ddc/abstraction.c` already holds the VCP value packing shared by all five platform
+DDC backends. Rather than duplicate that packing into each backend, the entire
+`ddc/` subsystem *becomes the first brightness source provider* behind the generic
+vtable: `abstraction.c` grows a `ddc_enumerate_sources()` that returns every
+controllable (non-built-in, readable) DDC display wrapped as a generic
+`brightness_source`, with VCP staying shared inside `abstraction.c` — i.e. *inside*
+the DDC provider, which is exactly where the spec wants it (out of the top/controller
+layer). Internal backends (Phase 2) are additional providers implementing the same
+vtable. Net effect on the platform DDC backends is minimal: each only gains a stable
+`id`/`label` per display (data it already computes — `CGDirectDisplayID`, EDID
+mfg/model, `\\.\DISPLAYn`, i2c device path). No per-backend VCP duplication, no
+signature churn on `ddc_implementation_*`.
 
 ### Controllability rule (the unifier)
 
