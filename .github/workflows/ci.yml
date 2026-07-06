@@ -37,33 +37,14 @@ jobs:
             msystem: CLANGARM64
             prefix: mingw-w64-clang-aarch64
             cc: clang
-    defaults:
-      run:
-        shell: msys2 {0}
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
 
-      - name: Set up MSYS2 toolchain
-        uses: msys2/setup-msys2@v2
+      - name: Build and test
+        uses: ./.github/actions/build-windows
         with:
           msystem: ${{ matrix.msystem }}
-          update: true
-          install: >-
-            git
-            ${{ matrix.prefix }}-${{ matrix.cc }}
-            ${{ matrix.prefix }}-cmake
-            ${{ matrix.prefix }}-ninja
-            ${{ matrix.prefix }}-pkgconf
-
-      - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.cc }}
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Test
-        # test_command_loop_end_to_end SKIPs on Windows (no POSIX socketpair);
-        # dimmit_unit runs the rest.
-        run: ctest --test-dir build --output-on-failure
+          prefix: ${{ matrix.prefix }}
+          cc: ${{ matrix.cc }}

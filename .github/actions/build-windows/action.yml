@@ -1,0 +1,55 @@
+name: Build and test (Windows)
+description: Set up MSYS2, build (static Release), test, and guard against non-system DLL imports on Windows.
+
+inputs:
+  msystem:
+    required: true
+  prefix:
+    required: true
+  cc:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up MSYS2 toolchain
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ inputs.msystem }}
+        update: true
+        install: >-
+          git
+          ${{ inputs.prefix }}-${{ inputs.cc }}
+          ${{ inputs.prefix }}-cmake
+          ${{ inputs.prefix }}-ninja
+          ${{ inputs.prefix }}-pkgconf
+
+    - name: Configure
+      shell: msys2 {0}
+      run: |
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER=${{ inputs.cc }} \
+          -DCMAKE_EXE_LINKER_FLAGS="-static"
+
+    - name: Build
+      shell: msys2 {0}
+      run: cmake --build build
+
+    - name: Test
+      shell: msys2 {0}
+      # test_command_loop_end_to_end SKIPs on Windows (no POSIX socketpair);
+      # dimmit_unit runs the rest.
+      run: ctest --test-dir build --output-on-failure
+
+    - name: Guard -- only OS-provided DLL imports
+      shell: msys2 {0}
+      run: |
+        OBJDUMP="$(command -v objdump || command -v llvm-objdump || true)"
+        if [ -z "$OBJDUMP" ]; then echo "no objdump; skipping guard"; exit 0; fi
+        for exe in build/dimmitd.exe build/dimmit-up.exe build/dimmit-down.exe; do
+          deps="$("$OBJDUMP" -p "$exe" || true)"
+          echo "== $exe =="; echo "$deps" | grep -i 'DLL Name' || true
+          if echo "$deps" | grep -Eqi 'libwinpthread|libgcc_s|libstdc\+\+|libc\+\+|libunwind'; then
+            echo "::error::non-system runtime DLL linked into $exe"; exit 1
+          fi
+        done
