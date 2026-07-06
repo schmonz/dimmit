@@ -1,9 +1,18 @@
 # Building dimmit on Windows (native, MinGW-w64 / MSYS2 UCRT64)
 
 This is the verified, reproducible setup for building dimmit natively on Windows 10
-(1803+) / 11. It produces native PE `.exe` files (`x86_64-w64-mingw32`) with no MSYS2
-runtime dependency. It was validated on Windows 11 Home 10.0.26200 with gcc 16.1.0,
-CMake 4.3.4, Ninja 1.13.2 (see `windows-feasibility-result.md` for the run record).
+(1803+) / 11. It produces native PE `.exe` files (`x86_64-w64-mingw32`). It was
+validated on Windows 11 Home 10.0.26200 with gcc 16.1.0, CMake 4.3.4, Ninja 1.13.2
+(see `windows-feasibility-result.md` for the run record).
+
+> **Runtime dependency note.** A *default* build links one non-system DLL from the
+> toolchain, `libwinpthread-1.dll`, so a dev build has to run with
+> `C:\msys64\ucrt64\bin` on `PATH` (as the steps below already do). For a
+> **redistributable, fully standalone** binary, link statically
+> (`-DCMAKE_EXE_LINKER_FLAGS=-static`): the result imports only OS-provided DLLs
+> (`dxva2`, `kernel32`, `user32`, `ws2_32`, and the UCRT `api-ms-win-crt-*`) and
+> runs on a stock Windows 10 1803+/11 with no MSYS2 install. That is exactly what
+> the GitHub Actions release build ships (see `.github/workflows/release.yml`).
 
 > **MSYS2/MinGW is a native Windows toolchain, not WSL.** Only the package manager
 > (`pacman`) runs in MSYS2's bash. The actual build runs from **PowerShell**, using the
@@ -123,5 +132,9 @@ taskkill /F /IM dimmitd.exe
   `.gitattributes` (`* text=auto eol=lf`) so a Windows git never rewrites the tree to CRLF.
   Set the git identity locally if the Windows git has none:
   `git config user.name "..."; git config user.email "..."`.
+- **CI and releases.** `.github/workflows/ci.yml` builds and tests Windows on every push
+  (x86_64 via UCRT64/gcc and arm64 via CLANGARM64/clang). `.github/workflows/release.yml`
+  ships a per-arch, statically linked `dimmit-<ver>-windows-<arch>.zip`. The arm64 build has
+  no x86_64 host that can run it, so the `windows-11-arm` runner is its first real validation.
 - **Out of scope for this build:** Windows service / autostart, brightness-key capture,
   installer (MSI/MSIX) + signing, and an MSVC build. See the feasibility plan's backlog.

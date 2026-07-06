@@ -142,6 +142,97 @@ jobs:
           name: dimmit-deb
           path: dimmit_*_amd64.deb
 
+  # Native Windows PE builds via MSYS2/MinGW-w64. Two arches:
+  #   x86_64 -> UCRT64 (gcc), arm64 -> CLANGARM64 (clang; no gcc for Win/ARM64).
+  # Linked `-static` so the shipped .exe depends ONLY on OS-provided DLLs
+  # (dxva2, kernel32, user32, ws2_32, UCRT) -- no libwinpthread/libgcc, so it
+  # runs on a stock Windows 10 1803+/11 with no MSYS2 install. The DLL-leak
+  # guard below fails the build if a future change reintroduces such a dep --
+  # same spirit as the macOS 10.9 compat guard above. arm64 has no x86_64 host
+  # that can run it; the windows-11-arm runner is its first real validation.
+  release-windows:
+    name: Build (Windows ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: windows-latest
+            msystem: UCRT64
+            prefix: mingw-w64-ucrt-x86_64
+            cc: gcc
+          - arch: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+            prefix: mingw-w64-clang-aarch64
+            cc: clang
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSYS2 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            git
+            ${{ matrix.prefix }}-${{ matrix.cc }}
+            ${{ matrix.prefix }}-cmake
+            ${{ matrix.prefix }}-ninja
+            ${{ matrix.prefix }}-pkgconf
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build (static, self-contained PE)
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_EXE_LINKER_FLAGS="-static"
+          cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Guard -- only OS-provided DLL imports
+        run: |
+          OBJDUMP="$(command -v objdump || command -v llvm-objdump || true)"
+          if [ -z "$OBJDUMP" ]; then echo "no objdump; skipping guard"; exit 0; fi
+          for exe in build/dimmitd.exe build/dimmit-up.exe build/dimmit-down.exe; do
+            deps="$("$OBJDUMP" -p "$exe" || true)"
+            echo "== $exe =="; echo "$deps" | grep -i 'DLL Name' || true
+            if echo "$deps" | grep -Eqi 'libwinpthread|libgcc_s|libstdc\+\+|libc\+\+|libunwind'; then
+              echo "::error::non-system runtime DLL linked into $exe"; exit 1
+            fi
+          done
+
+      - name: Package zip
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          dist="dimmit-$VER-windows-${{ matrix.arch }}"
+          mkdir "$dist"
+          cp build/dimmitd.exe build/dimmit-up.exe build/dimmit-down.exe "$dist"/
+          cp docs/windows-build.md README.md "$dist"/
+          cmake -E tar cf "$dist.zip" --format=zip "$dist"
+
+      - name: Upload build artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dimmit-windows-${{ matrix.arch }}
+          path: dimmit-*-windows-*.zip
+
   # All-or-nothing publish: this is the ONLY job that touches GitHub Releases,
   # and it `needs` every artifact-producing build job. GitHub runs a `needs`
   # job only when all of its dependencies succeed, so a failure in ANY build
@@ -149,7 +240,7 @@ jobs:
   # missing an artifact we're counting on. All files are uploaded in a single
   # action-gh-release call, so the release appears atomically and complete.
   publish:
-    needs: [release-macos, release-linux]
+    needs: [release-macos, release-linux, release-windows]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
@@ -165,4 +256,5 @@ jobs:
           files: |
             dist/dimmit-*.pkg
             dist/dimmit_*_amd64.deb
+            dist/dimmit-*-windows-*.zip
             dist/latest.json

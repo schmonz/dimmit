@@ -26,3 +26,55 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: Build and test (Windows ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x86_64: MinGW-w64 UCRT64 (gcc). Verified locally on Win11 26200.
+          - arch: x86_64
+            runner: windows-latest
+            msystem: UCRT64
+            prefix: mingw-w64-ucrt-x86_64
+            cc: gcc
+          # arm64: CLANGARM64 (clang -- no gcc backend exists for Win/ARM64).
+          # No x86_64 host can run this build; the arm64 runner is its first
+          # real validation. dxva2 + AF_UNIX are both present on ARM64 Windows.
+          - arch: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+            prefix: mingw-w64-clang-aarch64
+            cc: clang
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSYS2 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            git
+            ${{ matrix.prefix }}-${{ matrix.cc }}
+            ${{ matrix.prefix }}-cmake
+            ${{ matrix.prefix }}-ninja
+            ${{ matrix.prefix }}-pkgconf
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.cc }}
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        # test_command_loop_end_to_end SKIPs on Windows (no POSIX socketpair);
+        # dimmit_unit runs the rest.
+        run: ctest --test-dir build --output-on-failure
