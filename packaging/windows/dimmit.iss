@@ -38,20 +38,26 @@ Source: "{#Arm64Dir}\dimmit-up.exe";   DestDir: "{app}"; Check: IsArm64; Flags: 
 Source: "{#Arm64Dir}\dimmit-down.exe"; DestDir: "{app}"; Check: IsArm64; Flags: ignoreversion
 
 [Registry]
+; Append the install dir to the user PATH so dimmit-up / dimmit-down resolve from
+; a key mapping. Removed on uninstall by RemovePath (below).
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; \
   ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
+; Autostart the daemon at logon via the per-user Run key. This needs no elevation
+; (creating a Scheduled Task does -- "Access is denied" for a standard user),
+; matching the per-user, no-admin install. uninsdeletevalue removes it on uninstall.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
+  ValueType: string; ValueName: "Dimmit"; ValueData: """{app}\dimmitd.exe"""; \
+  Flags: uninsdeletevalue
 
 [Run]
-Filename: "{sys}\schtasks.exe"; \
-  Parameters: "/create /tn ""Dimmit"" /xml ""{app}\dimmit-task.xml"" /f"; \
-  Flags: runhidden; StatusMsg: "Registering logon task..."
-Filename: "{sys}\schtasks.exe"; Parameters: "/run /tn ""Dimmit"""; Flags: runhidden
+; Start the daemon now so the user needn't log out/in first. nowait: dimmitd runs
+; until stopped, so setup must not wait on it.
+Filename: "{app}\dimmitd.exe"; Flags: nowait runhidden
 
 [UninstallRun]
+; Stop the running daemon before removing files (so its exe isn't locked).
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im dimmitd.exe"; \
   Flags: runhidden; RunOnceId: "KillDaemon"
-Filename: "{sys}\schtasks.exe"; Parameters: "/delete /tn ""Dimmit"" /f"; \
-  Flags: runhidden; RunOnceId: "DeleteTask"
 
 [Code]
 function NeedsAddPath(Dir: string): Boolean;
@@ -61,36 +67,6 @@ begin
   if not RegQueryStringValue(HKCU, 'Environment', 'Path', OrigPath) then
     OrigPath := '';
   Result := Pos(';' + Uppercase(Dir) + ';', ';' + Uppercase(OrigPath) + ';') = 0;
-end;
-
-procedure WriteTaskXml;
-var
-  Xml: string;
-begin
-  Xml :=
-    '<?xml version="1.0" encoding="UTF-8"?>' + #13#10 +
-    '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' + #13#10 +
-    '  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>' + #13#10 +
-    '  <Principals><Principal id="Author">' + #13#10 +
-    '    <LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel>' + #13#10 +
-    '  </Principal></Principals>' + #13#10 +
-    '  <Settings>' + #13#10 +
-    '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' + #13#10 +
-    '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' + #13#10 +
-    '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' + #13#10 +
-    '    <StartWhenAvailable>true</StartWhenAvailable>' + #13#10 +
-    '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>' + #13#10 +
-    '  </Settings>' + #13#10 +
-    '  <Actions Context="Author"><Exec><Command>' +
-         ExpandConstant('{app}\dimmitd.exe') + '</Command></Exec></Actions>' + #13#10 +
-    '</Task>' + #13#10;
-  SaveStringToFile(ExpandConstant('{app}\dimmit-task.xml'), Xml, False);
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  if CurStep = ssPostInstall then
-    WriteTaskXml;
 end;
 
 procedure RemovePath(Dir: string);
