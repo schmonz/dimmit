@@ -6,6 +6,17 @@
 installs the binaries per-user and autostarts the daemon, replacing the current
 zip-of-loose-executables.
 
+> **Amendment (during implementation, 2026-07-07):** The autostart mechanism
+> below is described as a per-user logon **Scheduled Task**. Implementation
+> testing showed `schtasks /create` fails with **"Access is denied"** for a
+> standard (non-elevated) user, which is incompatible with the per-user,
+> no-admin install. Autostart was therefore changed to an **`HKCU\...\Run`
+> registry value** (added by the installer, removed on uninstall via
+> `uninsdeletevalue`), plus starting `dimmitd` immediately post-install. This
+> needs no elevation and also works on the non-interactive CI runner. Wherever
+> this document says "Scheduled Task," read "HKCU Run value." Everything else
+> (per-user install, dual-arch selection, PATH handling, uninstall, CI) stands.
+
 ## Goal
 
 Give Windows the same "download one artifact, it installs and sets itself up"

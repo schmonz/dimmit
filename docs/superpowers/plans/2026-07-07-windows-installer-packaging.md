@@ -8,6 +8,16 @@
 
 **Tech Stack:** Inno Setup 6.3+ (ISCC), PowerShell (smoke test), GitHub Actions, existing MSYS2/MinGW build.
 
+> **Amendment (implemented):** Tasks 1–2 originally specified a per-user logon
+> **Scheduled Task** for autostart (emitted via a task XML + `schtasks`).
+> Testing found `schtasks /create` is **"Access is denied"** for a standard
+> non-elevated user, incompatible with the no-admin install. Autostart was
+> switched to an **`HKCU\...\Run`** value (removed on uninstall via
+> `uninsdeletevalue`) plus an immediate post-install `dimmitd` start; the task
+> XML and all `schtasks` machinery were dropped from `dimmit.iss`, and
+> `smoke_test.ps1` checks the Run value instead of the task. Read the
+> Scheduled-Task steps below in that light.
+
 ## Global Constraints
 
 - **Installer tool:** Inno Setup **6.3+** (required for `IsArm64` / `IsX64OS`).
