@@ -206,11 +206,20 @@ jobs:
       - name: Smoke test installer (install + uninstall)
         shell: pwsh
         run: |
-          $setup = Get-ChildItem packaging\windows\dimmit-*-windows-setup.exe | Select-Object -First 1
-          Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          # Wait on the installer/uninstaller process ONLY -- not with
+          # Start-Process -Wait, which blocks on the whole process tree, and the
+          # installer's [Run] launches the long-lived dimmitd daemon (never exits).
+          # -PassThru + WaitForExit waits for just the setup/unins process, bounded.
+          function Invoke-Bounded($exe, $a, $t = 120) {
+            $p = Start-Process $exe -ArgumentList $a -PassThru
+            if (-not $p.WaitForExit($t * 1000)) { try { $p.Kill() } catch {}; throw "TIMEOUT: $exe" }
+            return $p.ExitCode
+          }
+          $setup = (Get-ChildItem packaging\windows\dimmit-*-windows-setup.exe | Select-Object -First 1).FullName
+          Invoke-Bounded $setup @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') 120 | Out-Null
           & packaging\windows\smoke_test.ps1 -Mode post-install
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\Dimmit'
-          Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          Invoke-Bounded "$dir\unins000.exe" @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') 120 | Out-Null
           # unins000.exe relaunches itself from %TEMP% and returns before cleanup
           # finishes; poll (bounded) until the files are gone rather than a fixed sleep.
           $deadline = (Get-Date).AddSeconds(60)
