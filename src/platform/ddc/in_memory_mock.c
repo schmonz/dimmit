@@ -14,17 +14,22 @@ static int g_current[MOCK_MAX_DISPLAYS];
 static int g_max[MOCK_MAX_DISPLAYS];
 static int g_fail[MOCK_MAX_DISPLAYS];
 static int g_count = 1;   /* default: one display, matches historic behavior */
+static int g_inited = 0;  /* has the mock been configured (default or mock_reset)? */
 
 /* Default single display (current=50,max=100) so any test that doesn't call
- * mock_reset() sees the original mock. */
+ * mock_reset() sees the original mock. Only applies when the mock has never been
+ * configured -- an explicit mock_reset() also marks it inited, so this can't
+ * clobber a reset that ran before the first display-list read. (That ordering
+ * happens on Windows, where the socketpair end-to-end test -- which otherwise
+ * warms up the mock first -- is skipped.) */
 static void ensure_default(void) {
-    static int inited = 0;
-    if (inited) return;
-    inited = 1;
+    if (g_inited) return;
+    g_inited = 1;
     g_current[0] = 50; g_max[0] = 100; g_fail[0] = 0; g_count = 1;
 }
 
 void mock_reset(int n, const int *currents, const int *maxes) {
+    g_inited = 1;
     if (n < 0) n = 0;
     if (n > MOCK_MAX_DISPLAYS) n = MOCK_MAX_DISPLAYS;
     g_count = n;
