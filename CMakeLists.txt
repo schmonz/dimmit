@@ -404,7 +404,8 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif (WIN32)
     # dxva2: Monitor Configuration API (GetVCPFeatureAndVCPFeatureReply /
     # SetVCPFeature). ws2_32: Winsock, including AF_UNIX support (Win10 1803+).
-    target_link_libraries(dimmitd PRIVATE dxva2 ws2_32)
+    # user32 + hid: Raw Input brightness-key capture (platform/input/windows.c).
+    target_link_libraries(dimmitd PRIVATE dxva2 ws2_32 user32 hid)
 endif()
 
 # ============================================================================
