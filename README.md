@@ -48,6 +48,7 @@ Then configure your desktop's keyboard settings to map the brightness keys to `d
 - CMake
 - Debian: `pkg-config` and `libddcutil-dev`
 - macOS: Command Line Tools (or full Xcode)
+- Windows: [MSYS2](https://www.msys2.org/) UCRT64 toolchain (`pacman -S mingw-w64-ucrt-x86_64-{gcc,cmake,ninja}`); build from the MSYS2 UCRT64 shell
 
 ### Runtime Dependencies
 

@@ -156,7 +156,7 @@ jobs:
           dist="dimmit-$VER-windows-${{ matrix.arch }}"
           mkdir "$dist"
           cp build/dimmitd.exe build/dimmit-up.exe build/dimmit-down.exe "$dist"/
-          cp docs/windows-build.md README.md "$dist"/
+          cp README.md "$dist"/
           cmake -E tar cf "$dist.zip" --format=zip "$dist"
 
       - name: Upload build artifact (always)
