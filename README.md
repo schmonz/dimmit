@@ -47,7 +47,7 @@ Download `dimmit-<version>-windows-setup.exe` from the [latest release](https://
 It installs per-user (no admin), so Windows SmartScreen may warn about an unknown publisher -- choose **More info -> Run anyway** (the build is not code-signed yet).
 The installer starts `dimmitd` at logon automatically.
 
-Then map your brightness keys (or any keys) to `dimmit-up` and `dimmit-down` in your keyboard/hotkey tool -- the installer put them on your `PATH`.
+`dimmitd` tries to capture your brightness keys directly (like on macOS). This works where the keys reach Windows as HID "brightness" events -- common on external/USB keyboards. On many laptops the brightness keys are handled by the firmware and never reach `dimmit`; there, map any keys to `dimmit-up` / `dimmit-down` in your keyboard/hotkey tool (the installer put them on your `PATH`).
 
 ## From Source
 
