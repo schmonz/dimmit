@@ -21,7 +21,9 @@ if ($Mode -eq 'post-install') {
   Write-Host 'SMOKE OK: install verified'
   exit 0
 } else {
-  if (Test-Path (Join-Path $InstallDir 'dimmitd.exe')) { Fail 'files remain after uninstall' }
+  foreach ($e in $exes) {
+    if (Test-Path (Join-Path $InstallDir $e)) { Fail "$e remains after uninstall" }
+  }
   if ($userPath -like "*$InstallDir*") { Fail 'install dir still on user PATH' }
   if ($runVal) { Fail 'autostart Run value still present' }
   Write-Host 'SMOKE OK: uninstall verified'

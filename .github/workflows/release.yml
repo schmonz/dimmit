@@ -209,9 +209,12 @@ jobs:
           $setup = Get-ChildItem packaging\windows\dimmit-*-windows-setup.exe | Select-Object -First 1
           Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
           & packaging\windows\smoke_test.ps1 -Mode post-install
-          $unins = Join-Path $env:LOCALAPPDATA 'Programs\Dimmit\unins000.exe'
-          Start-Process $unins -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
-          Start-Sleep -Seconds 3
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Dimmit'
+          Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          # unins000.exe relaunches itself from %TEMP% and returns before cleanup
+          # finishes; poll (bounded) until the files are gone rather than a fixed sleep.
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path "$dir\dimmitd.exe") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
           Stop-Process -Name dimmitd -Force -ErrorAction SilentlyContinue
           & packaging\windows\smoke_test.ps1 -Mode post-uninstall
 

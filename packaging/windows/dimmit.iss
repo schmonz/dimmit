@@ -28,6 +28,12 @@ ChangesEnvironment=yes
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 WizardStyle=modern
+; On upgrade the daemon is already running (autostarted at logon), so its exe is
+; locked. Inno's Restart Manager (CloseApplications=yes is the default; stated
+; here for clarity) closes dimmitd before [Files] replaces it. dimmitd does not
+; call RegisterApplicationRestart, so it is not auto-relaunched by RestartManager;
+; the [Run] entry starts the freshly installed copy instead.
+CloseApplications=yes
 
 [Files]
 Source: "{#X64Dir}\dimmitd.exe";      DestDir: "{app}"; Check: IsX64OS; Flags: ignoreversion
