@@ -41,6 +41,14 @@ sudo usermod -a -G i2c $(whoami)
 After installing: make sure the new group membership is available in your user session.
 Then configure your desktop's keyboard settings to map the brightness keys to `dimmit-up` and `dimmit-down`.
 
+### Windows
+
+Download `dimmit-<version>-windows-setup.exe` from the [latest release](https://github.com/schmonz/dimmit/releases/latest) and run it.
+It installs per-user (no admin), so Windows SmartScreen may warn about an unknown publisher -- choose **More info -> Run anyway** (the build is not code-signed yet).
+The installer starts `dimmitd` at logon automatically.
+
+Then map your brightness keys (or any keys) to `dimmit-up` and `dimmit-down` in your keyboard/hotkey tool -- the installer put them on your `PATH`.
+
 ## From Source
 
 ### Build Dependencies
