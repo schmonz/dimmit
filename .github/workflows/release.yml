@@ -150,37 +150,109 @@ jobs:
           prefix: ${{ matrix.prefix }}
           cc: ${{ matrix.cc }}
 
-      - name: Package zip
+      - name: Stage binaries
         run: |
-          VER="${{ steps.ver.outputs.version }}"
-          dist="dimmit-$VER-windows-${{ matrix.arch }}"
+          dist="payload-${{ matrix.arch }}"
           mkdir "$dist"
           cp build/dimmitd.exe build/dimmit-up.exe build/dimmit-down.exe "$dist"/
-          cp README.md "$dist"/
-          cmake -E tar cf "$dist.zip" --format=zip "$dist"
 
       - name: Upload build artifact (always)
         uses: actions/upload-artifact@v7
         with:
           name: dimmit-windows-${{ matrix.arch }}
-          path: dimmit-*-windows-*.zip
+          path: payload-${{ matrix.arch }}/*.exe
+
+  # Compile the single Windows installer from BOTH per-arch builds. Runs only
+  # after release-windows (both matrix legs) succeed; it downloads their raw exe
+  # artifacts, builds the Inno Setup installer that bundles both arches, and
+  # smoke-tests a real silent install + uninstall on the runner.
+  release-windows-installer:
+    name: Build Windows installer
+    needs: [release-windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Determine version
+        id: ver
+        uses: ./.github/actions/determine-version
+
+      - name: Download x86_64 binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: dimmit-windows-x86_64
+          path: payload/x64
+
+      - name: Download arm64 binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: dimmit-windows-arm64
+          path: payload/arm64
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        # Inno resolves relative Source: paths against the .iss dir, not cwd, so
+        # the payload dirs must be passed as ABSOLUTE paths.
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=${{ steps.ver.outputs.version }}" `
+            "/DX64Dir=$PWD\payload\x64" "/DArm64Dir=$PWD\payload\arm64" `
+            packaging\windows\dimmit.iss
+
+      - name: Smoke test installer (install + uninstall)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem packaging\windows\dimmit-*-windows-setup.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          & packaging\windows\smoke_test.ps1 -Mode post-install
+          $unins = Join-Path $env:LOCALAPPDATA 'Programs\Dimmit\unins000.exe'
+          Start-Process $unins -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          Start-Sleep -Seconds 3
+          Stop-Process -Name dimmitd -Force -ErrorAction SilentlyContinue
+          & packaging\windows\smoke_test.ps1 -Mode post-uninstall
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dimmit-windows-setup
+          path: packaging/windows/dimmit-*-windows-setup.exe
 
   # All-or-nothing publish: this is the ONLY job that touches GitHub Releases,
   # and it `needs` every artifact-producing build job. GitHub runs a `needs`
   # job only when all of its dependencies succeed, so a failure in ANY build
   # skips this job and no release is created -- we never ship a release that is
-  # missing an artifact we're counting on. All files are uploaded in a single
-  # action-gh-release call, so the release appears atomically and complete.
+  # missing an artifact we're counting on. The Windows dependency is the
+  # installer job (which itself needs release-windows), so a Windows build OR
+  # installer failure still blocks the release. Artifacts are downloaded by
+  # explicit name -- not merged -- so the two per-arch raw-exe artifacts (both
+  # containing dimmitd.exe) can't collide in dist/. latest.json rides in the
+  # dimmit-pkg artifact.
   publish:
-    needs: [release-macos, release-linux, release-windows]
+    needs: [release-macos, release-linux, release-windows-installer]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
-      - name: Download all build artifacts
+      - name: Download macOS artifact
         uses: actions/download-artifact@v8
         with:
+          name: dimmit-pkg
           path: dist
-          merge-multiple: true   # flatten every artifact into dist/
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: dimmit-deb
+          path: dist
+
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: dimmit-windows-setup
+          path: dist
 
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v3
@@ -188,5 +260,5 @@ jobs:
           files: |
             dist/dimmit-*.pkg
             dist/dimmit_*_amd64.deb
-            dist/dimmit-*-windows-*.zip
+            dist/dimmit-*-windows-setup.exe
             dist/latest.json
