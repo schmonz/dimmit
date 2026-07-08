@@ -37,7 +37,7 @@ static void handle_raw_input(HRAWINPUT hri) {
     UINT size = 0;
     if (GetRawInputData(hri, RID_INPUT, NULL, &size, sizeof(RAWINPUTHEADER)) != 0 || size == 0)
         return;
-    BYTE stackbuf[256];
+    _Alignas(8) BYTE stackbuf[256];   /* aligned: cast to RAWINPUT* below */
     BYTE *buf = (size <= sizeof(stackbuf)) ? stackbuf : (BYTE *)malloc(size);
     if (!buf) return;
     if (GetRawInputData(hri, RID_INPUT, buf, &size, sizeof(RAWINPUTHEADER)) != size)
@@ -80,7 +80,10 @@ out_buf:
 }
 
 static LRESULT CALLBACK wnd_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
-    if (msg == WM_INPUT) { handle_raw_input((HRAWINPUT)lp); return 0; }
+    switch (msg) {
+    case WM_INPUT:   handle_raw_input((HRAWINPUT)lp); return 0;
+    case WM_DESTROY: PostQuitMessage(0); return 0;   /* backs the WM_CLOSE stop path */
+    }
     return DefWindowProc(h, msg, wp, lp);
 }
 
@@ -144,8 +147,14 @@ int input_start(input_adjust_fn on_adjust) {
 
 void input_stop(void) {
     if (!g_thread_started) return;
-    if (g_thread_id) PostThreadMessage(g_thread_id, WM_QUIT, 0, 0);
+    /* WM_QUIT ends the thread's GetMessage loop. If posting to the thread ever
+     * fails, fall back to closing the window (WM_DESTROY -> PostQuitMessage), so
+     * shutdown can't wedge on the join. */
+    if (!g_thread_id || !PostThreadMessage(g_thread_id, WM_QUIT, 0, 0)) {
+        if (g_hwnd) PostMessageA(g_hwnd, WM_CLOSE, 0, 0);
+    }
     pthread_join(g_thread, NULL);
     g_thread_started = 0;
     g_thread_id = 0;
+    g_on_adjust = NULL;
 }
