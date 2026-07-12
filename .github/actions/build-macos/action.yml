@@ -1,12 +1,35 @@
 name: Build and test (macOS)
 description: Build the macOS universal binary, test the arm64 slice, and guard the 10.9 compat shims.
 
+inputs:
+  msc-ref:
+    description: >-
+      mavericks-shared-cmake commit to pin. Its compat_guard.sh backs the
+      build-time mavericks_compat_guard(dimmitd) POST_BUILD in the x86_64
+      sub-build (see CMakeLists.txt). Pinned by SHA for reproducible builds,
+      the same convention as the other mavericks-* consumers.
+    default: 3aebb2b4f699c58ffa88267e92c7c095c3b6ac21
+
 runs:
   using: composite
   steps:
+    # Install the shared 10.9 compat-guard machinery, pinned. It self-registers in
+    # the user package registry, so the x86_64 sub-build's find_package(MavericksSharedCMake)
+    # resolves it with no CMAKE_PREFIX_PATH. dimmit uses it à-la-carte (include(MavericksCompatGuard)
+    # only) -- it does NOT fetch a 10.9 SDK (modern SDK + -mmacosx-version-min=10.9 + our shims).
+    - name: Install mavericks-shared-cmake (pinned)
+      shell: bash
+      run: |
+        git clone https://github.com/schmonz/mavericks-shared-cmake /tmp/msc
+        git -C /tmp/msc checkout --quiet "${{ inputs.msc-ref }}"
+        cmake -S /tmp/msc -B /tmp/msc/build
+        cmake --install /tmp/msc/build --prefix "$HOME/.local"
+
     # The top-level build is the macOS universal wrapper: it probes the
     # toolchain, builds the arm64 (12.0) and x86_64 (10.9) slices, and lipos
-    # them into build/universal/. Same path users build locally -- DRY.
+    # them into build/universal/. Same path users build locally -- DRY. The x86_64
+    # sub-build runs mavericks_compat_guard(dimmitd) as a POST_BUILD, so a post-10.9
+    # symbol leak (or a missing shim) FAILS this build step -- no separate guard step.
     - name: Build universal binaries
       shell: bash
       run: |
@@ -22,22 +45,3 @@ runs:
     - name: Test (arm64 slice)
       shell: bash
       run: ctest --test-dir build/build-arm64 --output-on-failure
-
-    - name: 10.9 compat guard (no post-10.9 symbol leaks)
-      shell: bash
-      run: |
-        slice=build/build-x86_64/dimmitd
-        fail=0
-        # Our deployment-target shims must be present...
-        for sym in _dimmit_clock_gettime _dimmit_IORegistryEntryCopyPath; do
-          if ! nm "$slice" | grep -q "T $sym\$"; then
-            echo "::error::expected shim symbol $sym not defined in $slice"; fail=1
-          fi
-        done
-        # ...and the system symbols they replace must NOT appear as
-        # (non-weak) undefined references, or dyld aborts at launch on 10.9.
-        leaked=$(nm "$slice" | grep -E ' U _(clock_gettime|IORegistryEntryCopyPath)$' || true)
-        if [ -n "$leaked" ]; then
-          echo "::error::post-10.9 symbol leaked into the x86_64 slice:"; echo "$leaked"; fail=1
-        fi
-        exit $fail

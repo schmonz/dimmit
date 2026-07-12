@@ -398,6 +398,25 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     # safe by construction. (Don't add -force_load/-all_load, which defeat this.)
     target_link_options(dimmitd PRIVATE -Wl,-dead_strip)
 
+    # 10.9-safety gate for the shipped x86_64 slice (the Mavericks target). Uses the
+    # shared mavericks-shared-cmake compat guard à-la-carte -- include(MavericksCompatGuard)
+    # only, NOT include(Mavericks): the umbrella forces a 10.9/x86_64 deployment target that
+    # dimmit's arm64/Linux/NetBSD/Windows builds must not inherit. As a build-time POST_BUILD
+    # on the thin x86_64 dimmitd it asserts our deploy-target shims are DEFINED and the
+    # post-10.9 system symbols they rename are not undefined imports (else dyld aborts at
+    # launch on 10.9), plus arch==x86_64 and LC_VERSION_MIN_MACOSX==10.9. Supersedes the
+    # former inline CI guard (see .github/actions/build-macos), and now also runs locally.
+    # CI installs mavericks-shared-cmake pinned by SHA (that action); install it locally too
+    # (`cmake --install`, self-registers) to build the x86_64 slice.
+    if (BUILD_ARCH STREQUAL "x86_64")
+        find_package(MavericksSharedCMake REQUIRED)
+        include(MavericksCompatGuard)
+        # _clock_gettime is already in the guard's default post-10.9 set; add the IOKit rename.
+        set(MAVERICKS_POST_10_9_SYMBOLS "_IORegistryEntryCopyPath")
+        set(MAVERICKS_REQUIRE_DEFINED_SYMBOLS "_dimmit_clock_gettime|_dimmit_IORegistryEntryCopyPath")
+        mavericks_compat_guard(dimmitd)
+    endif()
+
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(dimmitd PRIVATE ${DDCUTIL_INCLUDE_DIRS})
     target_compile_options(dimmitd PRIVATE ${DDCUTIL_CFLAGS_OTHER})
