@@ -8,7 +8,7 @@ inputs:
       build-time mavericks_compat_guard(dimmitd) POST_BUILD in the x86_64
       sub-build (see CMakeLists.txt). Pinned by SHA for reproducible builds,
       the same convention as the other mavericks-* consumers.
-    default: 35428eeff13fa1e66c9aa40ad678cdc512f6dfb9  # mavericks-shared-cmake
+    default: 504839297d332fe2a0fc8e89b230e98c5480257f  # mavericks-shared-cmake
 
 runs:
   using: composite
