@@ -20,7 +20,7 @@ runs:
     - name: Install mavericks-shared-cmake (pinned)
       shell: bash
       run: |
-        git clone https://github.com/schmonz/mavericks-shared-cmake /tmp/msc
+        git clone https://github.com/ModernMavericks/shared-cmake /tmp/msc
         git -C /tmp/msc checkout --quiet "${{ inputs.msc-ref }}"
         cmake -S /tmp/msc -B /tmp/msc/build
         cmake --install /tmp/msc/build --prefix "$HOME/.local"
