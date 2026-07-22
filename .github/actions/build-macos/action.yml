@@ -4,11 +4,11 @@ description: Build the macOS universal binary, test the arm64 slice, and guard t
 inputs:
   msc-ref:
     description: >-
-      mavericks-shared-cmake commit to pin. Its compat_guard.sh backs the
-      build-time mavericks_compat_guard(dimmitd) POST_BUILD in the x86_64
-      sub-build (see CMakeLists.txt). Pinned by SHA for reproducible builds,
-      the same convention as the other mavericks-* consumers.
-    default: 312389eb8b3ac24c8f89fad2a78c82bc4eeac8cd  # mavericks-shared-cmake
+      ModernMavericks/shared-cmake ref to build from. Its compat_guard.sh backs
+      the build-time mavericks_compat_guard(dimmitd) POST_BUILD in the x86_64
+      sub-build (see CMakeLists.txt). The versioned tag IS the pin: v1 moves
+      only within a compatible surface, and a breaking change gets a major bump.
+    default: v1
 
 runs:
   using: composite
@@ -17,7 +17,7 @@ runs:
     # the user package registry, so the x86_64 sub-build's find_package(MavericksSharedCMake)
     # resolves it with no CMAKE_PREFIX_PATH. dimmit uses it à-la-carte (include(MavericksCompatGuard)
     # only) -- it does NOT fetch a 10.9 SDK (modern SDK + -mmacosx-version-min=10.9 + our shims).
-    - name: Install mavericks-shared-cmake (pinned)
+    - name: Install shared-cmake
       shell: bash
       run: |
         git clone https://github.com/ModernMavericks/shared-cmake /tmp/msc
